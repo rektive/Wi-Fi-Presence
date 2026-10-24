@@ -1,0 +1,19 @@
+{
+  "calibrated_at": "2026-10-23T00:00:00Z",
+  "interface": "wlan0",
+  "capture_mode": "monitor",
+  "sampling_rate_hz": 50,
+  "sample_count": 1500,
+  "baseline_metrics": {
+    "mean_rssi_dbm": -52.4,
+    "variance": 0.0412,
+    "std_dev": 0.2030,
+    "interquartile_range": 0.35,
+    "hampel_threshold": 0.609
+  },
+  "spectral_noise_floor": {
+    "kinetic_band_energy_mean": 0.0084,
+    "kinetic_band_energy_max": 0.0195
+  },
+  "status": "calibrated"
+}
