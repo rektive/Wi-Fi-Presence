@@ -11,18 +11,18 @@ class ProximityDetector:
         self,
         ref_rssi_at_1m: float = -48.0,
         path_loss_n: float = 3.2,
-        history_len: int = 25,
-        vector_window_sec: float = 0.9,
+        history_len: int = 20,
+        vector_window_sec: float = 0.8,
     ):
         self.history_len = history_len
         self.vector_window_sec = vector_window_sec
 
         self.rssi_buffer = deque(maxlen=history_len)
         self.doppler_energy_buffer = deque(maxlen=history_len)
-        self.trajectory_buffer = deque(maxlen=40)
+        self.trajectory_buffer = deque(maxlen=35)
         self.smoothed_distance = 1.8
 
-        # Anchor path to the actual project folder, safe under sudo
+        # Project-anchored profile path
         profile_path = pathlib.Path(__file__).resolve().parent / "profile.json"
         if profile_path.exists():
             try:
@@ -47,7 +47,7 @@ class ProximityDetector:
         self.rssi_buffer.append(raw_rssi)
         self.doppler_energy_buffer.append(filtered_doppler_sample)
 
-        if len(self.rssi_buffer) < 8:
+        if len(self.rssi_buffer) < 6:
             return {
                 "estimated_distance_m": 1.8,
                 "kinetic_energy": 0.0,
@@ -56,33 +56,41 @@ class ProximityDetector:
                 "radial_velocity_mps": 0.0,
             }
 
-        # 1. Clean RSSI array (outlier rejection)
+        # 1. Clean RSSI array (allow wider envelope so body shadow responds instantly)
         raw_arr = np.array(self.rssi_buffer)
         med = float(np.median(raw_arr))
-        clean = raw_arr[np.abs(raw_arr - med) <= 14.0]
-        if len(clean) < 4:
+        clean = raw_arr[np.abs(raw_arr - med) <= 18.0]
+        if len(clean) < 3:
             clean = raw_arr
 
-        current_median = float(np.median(clean))
+        # Fast responsive RSSI (weighted 60% recent average, 40% median)
+        recent_mean = float(np.mean(clean[-8:]))
+        effective_rssi = (0.60 * recent_mean) + (0.40 * float(np.median(clean)))
+        rssi_std = float(np.std(clean))
         kinetic_rms = float(
             np.sqrt(np.mean(np.array(self.doppler_energy_buffer) ** 2))
         )
 
-        # 2. Torso Shadow Mapping (Interpolation between Desk and Away)
-        # desk_mean = -49.07 dBm (heavy shadow)
-        # away_mean = -38.09 dBm (unobstructed line of sight)
-        # Ratio: 1.0 = Desk, 0.0 = 2.5m Away
-        total_span = abs(self.desk_mean - self.away_mean)
-        desk_proximity = (self.away_mean - current_median) / total_span
-        desk_proximity = float(np.clip(desk_proximity, 0.0, 1.0))
+        # 2. Torso Shadow Interpolation
+        # desk_mean = -49.07 dBm (attenuated/shadowed)
+        # away_mean = -38.09 dBm (direct open line of sight)
+        total_span = max(1.0, abs(self.desk_mean - self.away_mean))
+        raw_proximity = (self.away_mean - effective_rssi) / total_span
+        raw_proximity = float(np.clip(raw_proximity, 0.0, 1.0))
 
-        # 3. Direct Distance Mapping (0.5m at desk to 2.6m away)
-        # When desk_proximity is 1.0 -> 0.50m
-        # When desk_proximity is 0.0 -> 2.50m
-        target_d = 0.50 + ((1.0 - desk_proximity) * 2.00)
+        # Micro-presence booster: When near desk, even breathing (rssi_std > 0.8)
+        # solidifies proximity without needing to swing your arms
+        if raw_proximity > 0.35 and rssi_std > 0.8:
+            proximity_score = min(1.0, raw_proximity + 0.20)
+        else:
+            proximity_score = raw_proximity
 
-        # 4. Asymmetric Smoothing Filter
-        alpha = 0.35 if target_d > self.smoothed_distance else 0.25
+        # 3. Direct Distance Mapping (0.45m at desk up to 2.6m away)
+        target_d = 0.45 + ((1.0 - proximity_score) * 2.05)
+
+        # 4. Asymmetric Smoothing Filter:
+        # Snappy approach (alpha=0.45), steady departure (alpha=0.30)
+        alpha = 0.45 if target_d < self.smoothed_distance else 0.30
         self.smoothed_distance = round(
             (alpha * target_d) + ((1.0 - alpha) * self.smoothed_distance), 2
         )
@@ -90,7 +98,7 @@ class ProximityDetector:
 
         self.trajectory_buffer.append((now, estimated_meters))
 
-        # 5. Directional Vectoring
+        # 5. Responsive Directional Vectoring
         direction = "STATIONARY"
         radial_velocity = 0.0
 
@@ -100,16 +108,17 @@ class ProximityDetector:
         ):
             self.trajectory_buffer.popleft()
 
-        if len(self.trajectory_buffer) >= 5 and kinetic_rms > 0.4:
+        if len(self.trajectory_buffer) >= 4:
             t_first, d_first = self.trajectory_buffer[0]
             t_last, d_last = self.trajectory_buffer[-1]
             dt = t_last - t_first
 
-            if dt > 0.15:
+            if dt > 0.12:
                 radial_velocity = round((d_last - d_first) / dt, 2)
-                if radial_velocity <= -0.15:
+                # Sensitive approach / receding thresholds
+                if radial_velocity <= -0.08:
                     direction = "APPROACHING"
-                elif radial_velocity >= 0.15:
+                elif radial_velocity >= 0.08:
                     direction = "RECEDING"
 
         # 6. Spatial Zones
