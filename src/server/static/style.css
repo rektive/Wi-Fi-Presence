@@ -252,3 +252,15 @@ body {
     border-radius: 50%;
     box-shadow: 0 0 20px rgba(0, 136, 255, 0.1), inset 0 0 15px rgba(0, 0, 0, 0.8);
 }
+
+/* Smooth UI Stabilization & Anti-Flicker Transitions */
+.state-badge, 
+.geofence-badge, 
+.readout-value, 
+.count-display span {
+    transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, opacity 0.3s ease;
+}
+
+.meter-bar {
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
