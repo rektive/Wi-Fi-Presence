@@ -1,4 +1,5 @@
 # Wi-Fi RF Presence Radar & Geofence Engine
+# Author: Nikita Zhuravlov
 
 A real-time, non-invasive human presence detection, localization, and headcount estimation system powered by ambient 802.11 Wi-Fi signals. By passively capturing physical RF multipath reflections and Doppler phase perturbations, this system tracks room occupancy, counts occupants, and enforces an adjustable perimeter geofence without cameras, wearables, or proprietary radar hardware.
 
