@@ -238,3 +238,17 @@ body {
 .motion-approaching { color: #f87171 !important; }
 .motion-receding { color: #34d399 !important; }
 .motion-stationary { color: #94a3b8 !important; }
+
+/* Circular Radar Display Styles */
+.radar-viewport {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 8px 0 14px 0;
+}
+#radarCanvas {
+    background: radial-gradient(circle, #09121f 0%, #030712 100%);
+    border: 1px solid #1e293b;
+    border-radius: 50%;
+    box-shadow: 0 0 20px rgba(0, 136, 255, 0.1), inset 0 0 15px rgba(0, 0, 0, 0.8);
+}

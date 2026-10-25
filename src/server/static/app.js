@@ -115,6 +115,9 @@ function updateDashboard(payload) {
     const isOccupied = payload.state !== "VACANT";
     const hasDist = (dist !== undefined && dist !== null);
     const isInsideRadius = isOccupied && hasDist && (dist <= targetRadius);
+    currentRadarDistance = dist;
+    currentRadarOccupied = isOccupied;
+    currentRadarBreach = isInsideRadius;
 
     // 1. Proximity readouts
     if (distEl) {
@@ -266,3 +269,115 @@ fetch("/api/status")
     .catch(e => console.warn("Status endpoint offline:", e));
 
 connectWebSocket();
+
+// ==========================================
+// Circular RF Sweep Radar Engine
+// ==========================================
+const radarCanvas = document.getElementById("radarCanvas");
+const radarCtx = radarCanvas ? radarCanvas.getContext("2d") : null;
+let sweepAngle = 0.0;
+let currentRadarDistance = null;
+let currentRadarOccupied = false;
+let currentRadarBreach = false;
+
+function renderRadarFrame() {
+    if (!radarCtx || !radarCanvas) return;
+    const w = radarCanvas.width;
+    const h = radarCanvas.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const maxMeters = 4.0;
+    const maxRadius = cx - 12;
+
+    radarCtx.clearRect(0, 0, w, h);
+
+    // 1. Concentric Range Rings (1m, 2m, 3m, 4m)
+    for (let m = 1; m <= 4; m++) {
+        const r = (m / maxMeters) * maxRadius;
+        radarCtx.beginPath();
+        radarCtx.arc(cx, cy, r, 0, Math.PI * 2);
+        radarCtx.strokeStyle = "rgba(51, 65, 85, 0.4)";
+        radarCtx.lineWidth = 1;
+        radarCtx.stroke();
+
+        // Distance text marker
+        radarCtx.fillStyle = "rgba(100, 116, 139, 0.7)";
+        radarCtx.font = "9px sans-serif";
+        radarCtx.fillText(`${m}m`, cx + 3, cy - r + 10);
+    }
+
+    // Crosshairs
+    radarCtx.beginPath();
+    radarCtx.moveTo(cx, 12);
+    radarCtx.lineTo(cx, h - 12);
+    radarCtx.moveTo(12, cy);
+    radarCtx.lineTo(w - 12, cy);
+    radarCtx.strokeStyle = "rgba(30, 41, 59, 0.6)";
+    radarCtx.stroke();
+
+    // 2. User Perimeter Radius Circle
+    const perimeterPx = Math.min((targetRadius / maxMeters) * maxRadius, maxRadius);
+    radarCtx.save();
+    radarCtx.beginPath();
+    radarCtx.arc(cx, cy, perimeterPx, 0, Math.PI * 2);
+    radarCtx.setLineDash([4, 4]);
+    radarCtx.strokeStyle = currentRadarBreach ? "rgba(239, 68, 68, 0.85)" : "rgba(56, 189, 248, 0.6)";
+    radarCtx.lineWidth = 1.5;
+    radarCtx.stroke();
+    radarCtx.restore();
+
+    // 3. Sweeping Beam
+    sweepAngle += 0.04;
+    if (sweepAngle >= Math.PI * 2) sweepAngle = 0;
+
+    radarCtx.save();
+    radarCtx.translate(cx, cy);
+    radarCtx.rotate(sweepAngle);
+    const grad = radarCtx.createLinearGradient(0, 0, maxRadius, 0);
+    grad.addColorStop(0, "rgba(56, 189, 248, 0)");
+    grad.addColorStop(1, "rgba(56, 189, 248, 0.35)");
+    radarCtx.fillStyle = grad;
+    radarCtx.beginPath();
+    radarCtx.moveTo(0, 0);
+    radarCtx.arc(0, 0, maxRadius, -0.35, 0);
+    radarCtx.lineTo(0, 0);
+    radarCtx.fill();
+    radarCtx.restore();
+
+    // 4. Center Adapter Marker (PC location)
+    radarCtx.beginPath();
+    radarCtx.arc(cx, cy, 4, 0, Math.PI * 2);
+    radarCtx.fillStyle = "#38bdf8";
+    radarCtx.shadowColor = "#38bdf8";
+    radarCtx.shadowBlur = 8;
+    radarCtx.fill();
+    radarCtx.shadowBlur = 0;
+
+    // 5. Target Blip (if person detected)
+    if (currentRadarOccupied && currentRadarDistance !== null) {
+        const clampedDist = Math.max(0.3, Math.min(currentRadarDistance, maxMeters));
+        const blipR = (clampedDist / maxMeters) * maxRadius;
+        
+        // Fixed upward angle for direct display
+        const blipX = cx;
+        const blipY = cy - blipR;
+
+        radarCtx.beginPath();
+        radarCtx.arc(blipX, blipY, 7, 0, Math.PI * 2);
+        radarCtx.fillStyle = currentRadarBreach ? "#ef4444" : "#3b82f6";
+        radarCtx.shadowColor = currentRadarBreach ? "#ef4444" : "#3b82f6";
+        radarCtx.shadowBlur = 12;
+        radarCtx.fill();
+        radarCtx.shadowBlur = 0;
+
+        // Ripple ring around blip
+        radarCtx.beginPath();
+        radarCtx.arc(blipX, blipY, 11, 0, Math.PI * 2);
+        radarCtx.strokeStyle = currentRadarBreach ? "rgba(239, 68, 68, 0.5)" : "rgba(59, 130, 246, 0.5)";
+        radarCtx.lineWidth = 1.5;
+        radarCtx.stroke();
+    }
+
+    requestAnimationFrame(renderRadarFrame);
+}
+requestAnimationFrame(renderRadarFrame);
