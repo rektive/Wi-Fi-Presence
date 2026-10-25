@@ -3,75 +3,665 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wi-Fi Presence & Headcount Radar</title>
+    <title>Wi-Fi RF Presence Radar</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+
+:root {
+    --bg-base: #05070d;
+    --bg-card: rgba(11, 16, 27, 0.78);
+    --bg-card-hover: rgba(16, 23, 38, 0.90);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-glow: rgba(56, 189, 248, 0.25);
+    
+    --accent-primary: #38bdf8;
+    --accent-emerald: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-rose: #f43f5e;
+    --accent-indigo: #6366f1;
+
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-base);
+    background-image: 
+        radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.07) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.06) 0px, transparent 50%),
+        radial-gradient(circle at 50% 30%, rgba(16, 185, 129, 0.03) 0px, transparent 65%);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    padding: 24px 32px;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dashboard-container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Header */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 20px;
+    margin-bottom: 22px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.system-title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.system-version {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-primary);
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    padding: 2px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+}
+
+.subtitle {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: -0.2px;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 9999px;
+    backdrop-filter: blur(12px);
+    transition: all 0.3s ease;
+}
+
+.pill.connected {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #34d399;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+}
+
+.pill.connected::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #34d399;
+    box-shadow: 0 0 8px #34d399;
+    animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.pill.disconnected {
+    background: rgba(244, 63, 94, 0.1);
+    border: 1px solid rgba(244, 63, 94, 0.3);
+    color: #fb7185;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* ==========================================
+   Metrics Grid & Balanced Cards
+   ========================================== */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    margin-bottom: 22px;
+}
+
+.card {
+    background: var(--bg-card);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+}
+
+.card:hover {
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+.card-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.card-caption {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+    margin-top: auto;
+    padding-top: 10px;
+    flex-shrink: 0;
+}
+
+/* Card 1: State Presence Hero */
+.state-hero-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.state-beacon {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: all 0.4s ease;
+}
+
+.beacon-occupied {
+    background: radial-gradient(circle, rgba(244, 63, 94, 0.25) 0%, rgba(244, 63, 94, 0.05) 70%);
+    border: 1px solid rgba(244, 63, 94, 0.45);
+    box-shadow: 0 0 25px rgba(244, 63, 94, 0.25);
+}
+
+.beacon-vacant {
+    background: radial-gradient(circle, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.04) 70%);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+}
+
+.state-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    transition: all 0.3s ease;
+}
+
+.state-occupied {
+    background: rgba(244, 63, 94, 0.12);
+    border: 1px solid rgba(244, 63, 94, 0.35);
+    color: #fda4af;
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.18);
+}
+
+.state-vacant {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    color: #6ee7b7;
+}
+
+/* Card 2: Headcount Fill */
+.count-hero-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.count-dual-display {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: stretch;
+    gap: 12px;
+    padding: 6px 0;
+}
+
+.count-metric-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 10px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-subtle);
+    transition: all 0.2s ease;
+}
+
+.in-radius-box {
+    background: linear-gradient(180deg, rgba(56, 189, 248, 0.1) 0%, rgba(0, 0, 0, 0.35) 100%);
+    border-color: rgba(56, 189, 248, 0.35);
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.06);
+}
+
+.count-pill {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+.in-radius-pill {
+    background: rgba(56, 189, 248, 0.2);
+    color: var(--accent-primary);
+}
+
+.total-pill {
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--text-secondary);
+}
+
+.count-digits {
+    font-family: var(--font-mono);
+    font-size: 38px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--text-primary);
+}
+
+.highlight-num {
+    color: var(--accent-primary) !important;
+    text-shadow: 0 0 20px rgba(56, 189, 248, 0.45);
+}
+
+.count-metric-unit {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-top: 4px;
+}
+
+.count-divider {
+    width: 1px;
+    background: var(--border-subtle);
+    margin: 8px 0;
+}
+
+/* Card 3: Kinetic Energy Hero */
+.kinetic-hero-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    padding: 4px 0;
+}
+
+.kinetic-digital-readout {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 8px;
+}
+
+.kinetic-big-number {
+    font-family: var(--font-mono);
+    font-size: 36px;
+    font-weight: 800;
+    color: #f1f5f9;
+    letter-spacing: -1px;
+}
+
+.kinetic-unit-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-amber);
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.meter-track {
+    width: 100%;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border-subtle);
+    border-radius: 9999px;
+    overflow: hidden;
+}
+
+.meter-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #10b981 0%, #f59e0b 55%, #f43f5e 100%);
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.45);
+    transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.meter-labels {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+/* Card 4: Radar Geofence */
+.radius-config-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.radius-input {
+    width: 44px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    color: var(--accent-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    padding: 3px 0;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.radius-input:focus {
+    border-color: var(--accent-primary);
+}
+
+.radar-viewport {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 4px 0 10px 0;
+}
+
+#radarCanvas {
+    background: radial-gradient(circle, #080d19 0%, #03050a 100%);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    border-radius: 50%;
+    box-shadow: 
+        0 0 25px rgba(0, 0, 0, 0.8),
+        inset 0 0 18px rgba(0, 0, 0, 0.9),
+        0 0 12px rgba(56, 189, 248, 0.08);
+}
+
+.geofence-badge {
+    text-align: center;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+    transition: all 0.3s ease;
+}
+
+.geofence-breach {
+    background: rgba(244, 63, 94, 0.14);
+    border: 1px solid rgba(244, 63, 94, 0.4);
+    color: #fda4af;
+    box-shadow: 0 0 16px rgba(244, 63, 94, 0.2);
+}
+
+.geofence-outside {
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    color: #7dd3fc;
+}
+
+.geofence-clear {
+    background: rgba(148, 163, 184, 0.06);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    color: var(--text-muted);
+}
+
+.proximity-readouts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 8px;
+}
+
+.readout-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.readout-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.readout-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.motion-approaching { color: #f43f5e !important; }
+.motion-receding { color: #38bdf8 !important; }
+.motion-stationary { color: var(--text-muted) !important; }
+
+/* Charts */
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+}
+
+.chart-card {
+    background: var(--bg-card);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.chart-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+}
+
+.chart-container {
+    position: relative;
+    height: 230px;
+    width: 100%;
+    margin-top: 10px;
+}
+
+@media (max-width: 1180px) {
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+    body { padding: 16px; }
+    header { flex-direction: column; align-items: flex-start; gap: 12px; }
+    .metrics-grid, .charts-grid { grid-template-columns: 1fr; }
+}
+
+    </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="dashboard-container">
-        <header class="header">
-            <div class="header-left">
-                <h1>Wi-Fi RF Presence Radar</h1>
-                <span class="subtext" id="net-info">Interface: Detecting...</span>
+        <header>
+            <div class="brand-wrapper">
+                <div class="title-row">
+                    <h1 class="system-title">Wi-Fi RF Presence Radar</h1>
+                    <span class="system-version">ACTIVE SNIFFER</span>
+                </div>
+                <div class="subtitle" id="net-info">Loading telemetry hardware profile...</div>
             </div>
-            <div class="header-right">
-                <span id="connection-pill" class="pill disconnected">Disconnected</span>
+            <div class="status-cluster">
+                <div id="connection-pill" class="pill disconnected">Connecting</div>
             </div>
         </header>
 
         <section class="metrics-grid">
-            <div class="card state-card">
-                <h3>Room Occupancy State</h3>
-                <div id="state-badge" class="state-badge state-vacant">VACANT</div>
-                <div class="state-subtext" id="state-detail">No significant RF perturbation</div>
+            <!-- Card 1: Occupancy State -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Room Occupancy State</span>
+                </div>
+                <div class="state-hero-wrapper">
+                    <div class="state-beacon beacon-vacant" id="state-beacon-orb">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                    </div>
+                    <div id="state-badge" class="state-badge state-vacant">VACANT</div>
+                </div>
+                <div class="card-caption" id="state-detail">Initializing RF disturbance matrix...</div>
             </div>
 
-            <div class="card count-card">
-                <h3>Occupant Headcount</h3>
-                <div class="count-dual-display">
-                    <div class="count-metric-box in-radius-box">
-                        <span class="count-pill in-radius-pill">IN RADIUS</span>
-                        <div class="count-metric-val">
-                            <span id="radius-count-val" class="count-digits highlight-num">0</span>
+            <!-- Card 2: Occupant Headcount -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Occupant Headcount</span>
+                </div>
+                <div class="count-hero-wrapper">
+                    <div class="count-dual-display">
+                        <div class="count-metric-box in-radius-box">
+                            <span class="count-pill in-radius-pill">IN RADIUS</span>
+                            <div class="count-digits highlight-num" id="radius-count-val">0</div>
+                            <span class="count-metric-unit">People</span>
+                        </div>
+                        <div class="count-divider"></div>
+                        <div class="count-metric-box">
+                            <span class="count-pill total-pill">TOTAL ROOM</span>
+                            <div class="count-digits" id="headcount-val">0</div>
                             <span class="count-metric-unit">People</span>
                         </div>
                     </div>
-                    <div class="count-divider"></div>
-                    <div class="count-metric-box total-box">
-                        <span class="count-pill total-pill">TOTAL ROOM</span>
-                        <div class="count-metric-val">
-                            <span id="headcount-val" class="count-digits">0</span>
-                            <span class="count-metric-unit">People</span>
+                </div>
+                <div class="card-caption" id="confidence-detail">RF Scatter Baseline: Quiet</div>
+            </div>
+
+            <!-- Card 3: Kinetic Doppler Energy -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Kinetic Doppler Energy</span>
+                </div>
+                <div class="kinetic-hero-wrapper">
+                    <div class="kinetic-digital-readout">
+                        <span id="kinetic-val" class="kinetic-big-number">0.000</span>
+                        <span class="kinetic-unit-label">RMS Cadence</span>
+                    </div>
+                    <div>
+                        <div class="meter-track">
+                            <div id="kinetic-meter-bar" class="meter-bar"></div>
+                        </div>
+                        <div class="meter-labels" style="margin-top: 6px;">
+                            <span>Static</span>
+                            <span>High Motion</span>
                         </div>
                     </div>
                 </div>
-                <div class="count-subtext" id="confidence-detail">RF Scatter Entropy: 0.00</div>
+                <div class="card-caption">Bandpass filtered human kinetic cadence (0.3 - 5.0 Hz).</div>
             </div>
 
-            <div class="card kinetic-card">
-                <h3>Kinetic Doppler Energy</h3>
-                <div class="meter-container">
-                    <div id="kinetic-meter-bar" class="meter-bar" style="width: 0%;"></div>
-                </div>
-                <div class="meter-labels">
-                    <span>Static</span>
-                    <span id="kinetic-val">0.00</span>
-                    <span>High Motion</span>
-                </div>
-            </div>
-            <div class="card geofence-card">
-                <div class="card-header-flex">
-                    <h3>Perimeter Geofence</h3>
-                    <div class="radius-control">
+            <!-- Card 4: Perimeter Radar & Geofence -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Perimeter Geofence</span>
+                    <div class="radius-config-row">
                         <label for="geofence-radius">Radius:</label>
-                        <input type="number" id="geofence-radius" value="2.5" min="0.5" max="10.0" step="0.1">
+                        <input type="number" id="geofence-radius" class="radius-input" step="0.1" min="0.5" max="5.0" value="1.2">
                         <span>m</span>
                     </div>
                 </div>
+
                 <div class="radar-viewport">
-                    <canvas id="radarCanvas" width="220" height="220"></canvas>
+                    <canvas id="radarCanvas" width="160" height="160"></canvas>
                 </div>
+
                 <div id="geofence-badge" class="geofence-badge geofence-clear">PERIMETER CLEAR</div>
+                
                 <div class="proximity-readouts">
                     <div class="readout-item">
                         <span class="readout-label">Distance</span>
@@ -82,29 +672,30 @@
                         <span id="geofence-count-val" class="readout-value highlight-num">0</span>
                     </div>
                     <div class="readout-item">
-                        <span class="readout-label">Direction</span>
+                        <span class="readout-label">Motion</span>
                         <span id="motion-val" class="readout-value motion-stationary">STATIONARY</span>
                     </div>
                 </div>
-                <div class="state-subtext" id="geofence-detail">Radial monitoring active.</div>
+                <div class="card-caption" id="geofence-detail">Active range monitoring.</div>
             </div>
         </section>
 
         <section class="charts-grid">
-            <div class="card chart-card">
-                <h3>Real-Time RF Multipath Signal</h3>
-                <div class="canvas-wrapper">
+            <div class="chart-card">
+                <span class="card-title">Real-Time RF Multipath Signal</span>
+                <div class="chart-container">
                     <canvas id="signalChart"></canvas>
                 </div>
             </div>
-            <div class="card chart-card">
-                <h3>Kinetic Walking Cadence Band (0.3 - 5.0 Hz)</h3>
-                <div class="canvas-wrapper">
+            <div class="chart-card">
+                <span class="card-title">Kinetic Walking Cadence Band (0.3 - 5.0 Hz)</span>
+                <div class="chart-container">
                     <canvas id="dopplerChart"></canvas>
                 </div>
             </div>
         </section>
     </div>
+
     <script src="/static/app.js"></script>
 </body>
 </html>

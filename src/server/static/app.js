@@ -213,10 +213,14 @@ function updateDashboard(payload) {
             if (!stableInRadius && targetRadius <= 2.5) {
                 badge.innerText = "OUTSIDE PERIMETER";
                 badge.className = "state-badge state-vacant";
+                const orb = document.getElementById("state-beacon-orb");
+                if (orb) orb.className = "state-beacon beacon-vacant";
                 stateDetail.innerText = `Activity detected in adjacent room (~${smoothedDistance ? smoothedDistance.toFixed(1) : '?'}m).`;
             } else {
                 badge.innerText = "OCCUPIED";
                 badge.className = "state-badge state-occupied";
+                const orb = document.getElementById("state-beacon-orb");
+                if (orb) orb.className = "state-beacon beacon-occupied";
                 stateDetail.innerText = "Sustained human presence active in room.";
             }
         } else {
