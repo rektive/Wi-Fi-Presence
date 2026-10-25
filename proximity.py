@@ -1,3 +1,5 @@
+import json
+import pathlib
 import time
 from collections import deque
 import numpy as np
@@ -9,64 +11,78 @@ class ProximityDetector:
         self,
         ref_rssi_at_1m: float = -48.0,
         path_loss_n: float = 3.2,
-        history_len: int = 30,
+        history_len: int = 25,
         vector_window_sec: float = 0.9,
     ):
-        self.ref_baseline = ref_rssi_at_1m
         self.history_len = history_len
         self.vector_window_sec = vector_window_sec
 
         self.rssi_buffer = deque(maxlen=history_len)
         self.doppler_energy_buffer = deque(maxlen=history_len)
-        self.trajectory_buffer = deque(maxlen=45)
-        self.smoothed_distance = 2.5
+        self.trajectory_buffer = deque(maxlen=40)
+        self.smoothed_distance = 1.8
+
+        # Anchor path to the actual project folder, safe under sudo
+        profile_path = pathlib.Path(__file__).resolve().parent / "profile.json"
+        if profile_path.exists():
+            try:
+                prof = json.loads(profile_path.read_text(encoding="utf-8"))
+                self.desk_mean = float(prof.get("desk_mean", -49.07))
+                self.away_mean = float(prof.get("away_mean", -38.09))
+                self.desk_std = float(prof.get("desk_std", 7.94))
+                self.away_std = float(prof.get("away_std", 7.20))
+            except Exception:
+                self._load_defaults()
+        else:
+            self._load_defaults()
+
+    def _load_defaults(self):
+        self.desk_mean = -49.07
+        self.away_mean = -38.09
+        self.desk_std = 7.94
+        self.away_std = 7.20
 
     def process(self, raw_rssi: float, filtered_doppler_sample: float) -> dict:
         now = time.time()
         self.rssi_buffer.append(raw_rssi)
         self.doppler_energy_buffer.append(filtered_doppler_sample)
 
-        if len(self.rssi_buffer) < 10:
+        if len(self.rssi_buffer) < 8:
             return {
-                "estimated_distance_m": 2.5,
+                "estimated_distance_m": 1.8,
                 "kinetic_energy": 0.0,
                 "zone": "CALIBRATING",
                 "direction": "STATIONARY",
                 "radial_velocity_mps": 0.0,
             }
 
-        # 1. Clean RSSI array (rejection of corrupted frames)
+        # 1. Clean RSSI array (outlier rejection)
         raw_arr = np.array(self.rssi_buffer)
         med = float(np.median(raw_arr))
-        clean = raw_arr[np.abs(raw_arr - med) <= 12.0]
+        clean = raw_arr[np.abs(raw_arr - med) <= 14.0]
         if len(clean) < 4:
             clean = raw_arr
 
-        median_rssi = float(np.median(clean))
-        rssi_std = float(np.std(clean))
-        kinetic_rms = float(np.sqrt(np.mean(np.array(self.doppler_energy_buffer) ** 2)))
+        current_median = float(np.median(clean))
+        kinetic_rms = float(
+            np.sqrt(np.mean(np.array(self.doppler_energy_buffer) ** 2))
+        )
 
-        # 2. Physics-Based Distance Mapping
-        # Torso Shadowing: difference between clean baseline (-48 dBm) and current median
-        shadow_attenuation = max(0.0, self.ref_baseline - median_rssi)
+        # 2. Torso Shadow Mapping (Interpolation between Desk and Away)
+        # desk_mean = -49.07 dBm (heavy shadow)
+        # away_mean = -38.09 dBm (unobstructed line of sight)
+        # Ratio: 1.0 = Desk, 0.0 = 2.5m Away
+        total_span = abs(self.desk_mean - self.away_mean)
+        desk_proximity = (self.away_mean - current_median) / total_span
+        desk_proximity = float(np.clip(desk_proximity, 0.0, 1.0))
 
-        if shadow_attenuation >= 4.0 or (shadow_attenuation >= 2.0 and rssi_std > 1.2):
-            # Direct line-of-sight blockage: occupant is sitting/standing directly at desk
-            target_d = 0.45 + max(0.0, (10.0 - shadow_attenuation) * 0.06)
-        elif rssi_std >= 0.70 or kinetic_rms >= 1.2:
-            # Unblocked direct path, but high multipath reflection: moving in room (1.2m - 2.4m)
-            target_d = 1.30 + max(0.0, (1.8 - rssi_std) * 1.1)
-        elif rssi_std >= 0.25 or kinetic_rms >= 0.40:
-            # Distant movement (standing back at 2.5m+ or doorway)
-            target_d = 2.50 + max(0.0, (0.70 - rssi_std) * 2.2)
-        else:
-            # Faint background noise / adjacent room through drywall
-            target_d = 3.80 + max(0.0, (0.25 - rssi_std) * 2.5)
+        # 3. Direct Distance Mapping (0.5m at desk to 2.6m away)
+        # When desk_proximity is 1.0 -> 0.50m
+        # When desk_proximity is 0.0 -> 2.50m
+        target_d = 0.50 + ((1.0 - desk_proximity) * 2.00)
 
-        target_d = float(np.clip(target_d, 0.4, 4.5))
-
-        # 3. Dynamic Smoothing Filter (Asymmetric: faster tracking when stepping back)
-        alpha = 0.40 if target_d > self.smoothed_distance else 0.25
+        # 4. Asymmetric Smoothing Filter
+        alpha = 0.35 if target_d > self.smoothed_distance else 0.25
         self.smoothed_distance = round(
             (alpha * target_d) + ((1.0 - alpha) * self.smoothed_distance), 2
         )
@@ -74,7 +90,7 @@ class ProximityDetector:
 
         self.trajectory_buffer.append((now, estimated_meters))
 
-        # 4. Directional Vectoring (Computed across trajectory window)
+        # 5. Directional Vectoring
         direction = "STATIONARY"
         radial_velocity = 0.0
 
@@ -84,20 +100,19 @@ class ProximityDetector:
         ):
             self.trajectory_buffer.popleft()
 
-        if len(self.trajectory_buffer) >= 6:
+        if len(self.trajectory_buffer) >= 5 and kinetic_rms > 0.4:
             t_first, d_first = self.trajectory_buffer[0]
             t_last, d_last = self.trajectory_buffer[-1]
             dt = t_last - t_first
 
-            if dt > 0.18:
+            if dt > 0.15:
                 radial_velocity = round((d_last - d_first) / dt, 2)
-                # Negative = moving toward antenna; Positive = moving away
                 if radial_velocity <= -0.15:
                     direction = "APPROACHING"
                 elif radial_velocity >= 0.15:
                     direction = "RECEDING"
 
-        # 5. Zone Classification
+        # 6. Spatial Zones
         if estimated_meters <= 1.0:
             zone = "IMMEDIATE (At Desk)"
         elif estimated_meters <= 2.2:
