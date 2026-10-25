@@ -120,7 +120,7 @@ Open `.env` in your editor and configure the parameters:
 ```env
 # Wi-Fi Interface Configuration
 WIFI_INTERFACE=your_monitor_interface_here
-ROUTER_IP=192.168.2.1
+ROUTER_IP=your_router_ip
 ROUTER_BSSID=00:11:22:33:44:55
 
 # Pipeline Capture Settings
