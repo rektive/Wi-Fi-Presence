@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wi-Fi Presence & Headcount Radar</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="header">
+            <div class="header-left">
+                <h1>Wi-Fi RF Presence Radar</h1>
+                <span class="subtext" id="net-info">Interface: Detecting...</span>
+            </div>
+            <div class="header-right">
+                <span id="connection-pill" class="pill disconnected">Disconnected</span>
+            </div>
+        </header>
+
+        <section class="metrics-grid">
+            <div class="card state-card">
+                <h3>Room Occupancy State</h3>
+                <div id="state-badge" class="state-badge state-vacant">VACANT</div>
+                <div class="state-subtext" id="state-detail">No significant RF perturbation</div>
+            </div>
+
+            <div class="card count-card">
+                <h3>Estimated Headcount</h3>
+                <div class="count-display">
+                    <span id="headcount-val">0</span>
+                    <span class="count-unit">People</span>
+                </div>
+                <div class="count-subtext" id="confidence-detail">RF Scatter Entropy: 0.00</div>
+            </div>
+
+            <div class="card kinetic-card">
+                <h3>Kinetic Doppler Energy</h3>
+                <div class="meter-container">
+                    <div id="kinetic-meter-bar" class="meter-bar" style="width: 0%;"></div>
+                </div>
+                <div class="meter-labels">
+                    <span>Static</span>
+                    <span id="kinetic-val">0.00</span>
+                    <span>High Motion</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="charts-grid">
+            <div class="card chart-card">
+                <h3>Real-Time RF Multipath Signal</h3>
+                <div class="canvas-wrapper">
+                    <canvas id="signalChart"></canvas>
+                </div>
+            </div>
+            <div class="card chart-card">
+                <h3>Kinetic Walking Cadence Band (0.3 - 5.0 Hz)</h3>
+                <div class="canvas-wrapper">
+                    <canvas id="dopplerChart"></canvas>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

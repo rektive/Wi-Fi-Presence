@@ -46,6 +46,28 @@
                     <span>High Motion</span>
                 </div>
             </div>
+            <div class="card geofence-card">
+                <div class="card-header-flex">
+                    <h3>Perimeter Geofence</h3>
+                    <div class="radius-control">
+                        <label for="geofence-radius">Radius:</label>
+                        <input type="number" id="geofence-radius" value="2.5" min="0.5" max="10.0" step="0.1">
+                        <span>m</span>
+                    </div>
+                </div>
+                <div id="geofence-badge" class="geofence-badge geofence-clear">PERIMETER CLEAR</div>
+                <div class="proximity-readouts">
+                    <div class="readout-item">
+                        <span class="readout-label">Distance to Adapter</span>
+                        <span id="distance-val" class="readout-value">-- m</span>
+                    </div>
+                    <div class="readout-item">
+                        <span class="readout-label">Motion Direction</span>
+                        <span id="motion-val" class="readout-value motion-stationary">STATIONARY</span>
+                    </div>
+                </div>
+                <div class="state-subtext" id="geofence-detail">Radial monitoring active.</div>
+            </div>
         </section>
 
         <section class="charts-grid">

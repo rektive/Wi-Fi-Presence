@@ -1,3 +1,5 @@
+import atexit
+import subprocess
 #!/usr/bin/env python3
 """Main execution entry point: orchestrates capture, DSP pipeline, and ASGI server."""
 
@@ -10,6 +12,8 @@ import time
 import numpy as np
 import uvicorn
 from config.settings import settings
+import os
+ENABLE_PROXIMITY = os.getenv("ENABLE_PROXIMITY", "True").lower() in ("true", "1", "yes")
 from src.capture import MonitorSniffer, ActiveProber
 from src.processing.filters import hampel_filter, butterworth_bandpass
 from src.processing.baseline import DynamicBaseline
@@ -17,6 +21,9 @@ from src.analysis.features import extract_feature_vector
 from src.detector.state_machine import RoomStateMachine, RoomState
 from src.detector.crowd_estimator import CrowdEstimator
 from src.server.app import app, ws_manager
+from proximity import ProximityDetector
+
+proximity_detector = ProximityDetector(ref_rssi_at_1m=-48.0, path_loss_n=3.2)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +40,16 @@ def dsp_pipeline_loop(loop: asyncio.AbstractEventLoop):
         ingestor = MonitorSniffer(settings.WIFI_INTERFACE, settings.ROUTER_BSSID)
     else:
         ingestor = ActiveProber(settings.ROUTER_IP, rate_hz=settings.SAMPLING_RATE_HZ)
+
+    # Automatically illuminate the room with 50 Hz packet stream in monitor mode
+    ping_proc = None
+    if settings.CAPTURE_MODE == "monitor":
+        logger.info(f"Auto-spawning background packet stream to {settings.ROUTER_IP} at 50 Hz...")
+        ping_proc = subprocess.Popen(
+            ["ping", "-i", "0.02", settings.ROUTER_IP],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     ingestor.start()
 
@@ -60,15 +77,34 @@ def dsp_pipeline_loop(loop: asyncio.AbstractEventLoop):
 
     logger.info("Signal processing engine active.")
 
+    last_pulse_time = time.time()
+    pulse_packet_count = 0
+    empty_streak = 0
+
     while True:
         sample = ingestor.get_sample(timeout=0.1)
         if sample is None:
+            empty_streak += 1
+            if empty_streak % 30 == 0:
+                logger.warning("[NO DATA] 0 packets in 3s! Verify that 'sudo ping -i 0.02 192.168.2.1' is running in Terminal 1.")
             continue
 
+        empty_streak = 0
         _, val = sample
         buffer.append(val)
+        pulse_packet_count += 1
 
-        if len(buffer) >= (settings.WINDOW_SIZE_SAMPLES // 2):
+        now_pulse = time.time()
+        if now_pulse - last_pulse_time >= 1.0:
+            rate_hz = pulse_packet_count / max(0.001, (now_pulse - last_pulse_time))
+            cur_dist = f"{prox_data['estimated_distance_m']}m" if ('prox_data' in locals() and prox_data.get('estimated_distance_m') is not None) else "calibrating"
+            cur_dir = prox_data.get('direction', 'STATIONARY') if 'prox_data' in locals() else "STATIONARY"
+            cur_state = current_state.value if 'current_state' in locals() else "INIT"
+            logger.info(f"[RADAR PULSE] {rate_hz:.0f} pkts/s | RSSI: {val:.1f} dBm | Dist: {cur_dist} | Dir: {cur_dir} | State: {cur_state}")
+            last_pulse_time = now_pulse
+            pulse_packet_count = 0
+
+        if len(buffer) >= max(30, settings.WINDOW_SIZE_SAMPLES // 2):
             raw_win = np.array(buffer, dtype=np.float32)
 
             # Apply Hampel outlier rejection
@@ -101,8 +137,17 @@ def dsp_pipeline_loop(loop: asyncio.AbstractEventLoop):
             # Predict occupant count
             headcount = crowd_estimator.predict_occupants(features, is_room_vacant=is_vacant)
 
+            # Compute real-time proximity and distance
+            if ENABLE_PROXIMITY:
+                prox_data = proximity_detector.process(float(val), float(filtered_win[-1]))
+            else:
+                prox_data = {"proximity": "DISABLED", "estimated_distance_m": None}
+
             if state_changed:
-                logger.info(f"[STATE EVENT] Room transitioned to: {current_state.value} | Headcount: {headcount}")
+                if ENABLE_PROXIMITY and "zone" in prox_data:
+                    logger.info(f"[STATE EVENT] Room: {current_state.value} | Headcount: {headcount} | Proximity: {prox_data['zone']} (~{prox_data['estimated_distance_m']}m) | Motion: {prox_data.get('direction', 'STATIONARY')}")
+                else:
+                    logger.info(f"[STATE EVENT] Room transitioned to: {current_state.value} | Headcount: {headcount}")
 
             # Send telemetry to UI via WebSocket
             now = time.time()
@@ -118,6 +163,8 @@ def dsp_pipeline_loop(loop: asyncio.AbstractEventLoop):
                     "kinetic_energy": features.kinetic_energy,
                     "entropy": features.spectral_entropy,
                 }
+                if ENABLE_PROXIMITY:
+                    telemetry.update(prox_data)
                 asyncio.run_coroutine_threadsafe(ws_manager.broadcast_json(telemetry), loop)
 
 
@@ -143,3 +190,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def _cleanup_pings():
+    try:
+        import subprocess
+        subprocess.run(["killall", "-9", "ping"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+atexit.register(_cleanup_pings)
