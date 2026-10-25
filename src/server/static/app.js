@@ -110,8 +110,8 @@ let lastOccupiedTimestamp = 0;
 let stableDirection = "STATIONARY";
 let lastDirectionTimestamp = 0;
 
-const HOLD_TIME_MS = 2500;       // 2.5s hold time eliminates momentary null flickers
-const HYSTERESIS_MARGIN = 0.25;  // 25cm barrier prevents flapping right on the radius line
+const HOLD_TIME_MS = 1200;       // 2.5s hold time eliminates momentary null flickers
+const HYSTERESIS_MARGIN = 0.10;  // 25cm barrier prevents flapping right on the radius line
 
 function updateDashboard(payload) {
     const now = Date.now();
@@ -226,17 +226,38 @@ function updateDashboard(payload) {
         }
     }
 
-    // Headcount Display (Rock-solid, zero flapping)
-    if (countVal && confidenceDetail) {
-        if (stableOccupied && stableInRadius) {
-            countVal.innerText = "1";
-            confidenceDetail.innerText = `Inside ${targetRadius.toFixed(1)}m perimeter | Signal locked`;
-        } else if (stableOccupied && !stableInRadius) {
-            countVal.innerText = "0";
-            confidenceDetail.innerText = `Filtered: adjacent room reflection (~${smoothedDistance ? smoothedDistance.toFixed(1) : '?'}m)`;
+    // Dual Headcount Engine (In-Radius vs Total Room)
+    const radiusCountVal = document.getElementById("radius-count-val");
+    const geofenceCountVal = document.getElementById("geofence-count-val");
+
+    let totalHeadcount = 0;
+    let inRadiusHeadcount = 0;
+
+    if (stableOccupied) {
+        // Total RF perturbations in the environment
+        totalHeadcount = Math.max(1, payload.headcount || 1);
+        
+        // Strict in-perimeter headcount
+        if (stableInRadius) {
+            inRadiusHeadcount = 1;
         } else {
-            countVal.innerText = "0";
-            confidenceDetail.innerText = `Quiet RF baseline (0.00)`;
+            inRadiusHeadcount = 0;
+        }
+    }
+
+    if (countVal) countVal.innerText = totalHeadcount;
+    if (radiusCountVal) radiusCountVal.innerText = inRadiusHeadcount;
+    if (geofenceCountVal) geofenceCountVal.innerText = inRadiusHeadcount;
+
+    if (confidenceDetail) {
+        if (stableOccupied) {
+            if (stableInRadius) {
+                confidenceDetail.innerText = `Target in perimeter (${targetRadius.toFixed(1)}m) | Total detected: ${totalHeadcount}`;
+            } else {
+                confidenceDetail.innerText = `Filtered: ${totalHeadcount} in room, but outside ${targetRadius.toFixed(1)}m perimeter (~${smoothedDistance ? smoothedDistance.toFixed(1) : '?'}m)`;
+            }
+        } else {
+            confidenceDetail.innerText = `RF Scatter Entropy: ${payload.entropy ? payload.entropy.toFixed(2) : '0.00'} | Baseline Quiet`;
         }
     }
 

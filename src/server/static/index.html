@@ -27,10 +27,23 @@
             </div>
 
             <div class="card count-card">
-                <h3>Estimated Headcount</h3>
-                <div class="count-display">
-                    <span id="headcount-val">0</span>
-                    <span class="count-unit">People</span>
+                <h3>Occupant Headcount</h3>
+                <div class="count-dual-display">
+                    <div class="count-metric-box in-radius-box">
+                        <span class="count-pill in-radius-pill">IN RADIUS</span>
+                        <div class="count-metric-val">
+                            <span id="radius-count-val" class="count-digits highlight-num">0</span>
+                            <span class="count-metric-unit">People</span>
+                        </div>
+                    </div>
+                    <div class="count-divider"></div>
+                    <div class="count-metric-box total-box">
+                        <span class="count-pill total-pill">TOTAL ROOM</span>
+                        <div class="count-metric-val">
+                            <span id="headcount-val" class="count-digits">0</span>
+                            <span class="count-metric-unit">People</span>
+                        </div>
+                    </div>
                 </div>
                 <div class="count-subtext" id="confidence-detail">RF Scatter Entropy: 0.00</div>
             </div>
@@ -61,11 +74,15 @@
                 <div id="geofence-badge" class="geofence-badge geofence-clear">PERIMETER CLEAR</div>
                 <div class="proximity-readouts">
                     <div class="readout-item">
-                        <span class="readout-label">Distance to Adapter</span>
+                        <span class="readout-label">Distance</span>
                         <span id="distance-val" class="readout-value">-- m</span>
                     </div>
                     <div class="readout-item">
-                        <span class="readout-label">Motion Direction</span>
+                        <span class="readout-label">In Radius</span>
+                        <span id="geofence-count-val" class="readout-value highlight-num">0</span>
+                    </div>
+                    <div class="readout-item">
+                        <span class="readout-label">Direction</span>
                         <span id="motion-val" class="readout-value motion-stationary">STATIONARY</span>
                     </div>
                 </div>
