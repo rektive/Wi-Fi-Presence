@@ -582,6 +582,21 @@ header {
             </div>
         </header>
 
+        <!-- Presets Toolbar -->
+        <div class="presets-bar">
+            <div class="presets-meta">
+                <span class="presets-tag">PROFILES</span>
+                <span class="presets-count-badge" id="preset-count-badge">1 / 3</span>
+            </div>
+            <div class="presets-list" id="presets-container">
+                <!-- Dynamically populated preset pills -->
+            </div>
+            <button class="btn-add-preset" id="btn-add-preset" onclick="openCalibrationModal()">
+                + Calibrate Room
+            </button>
+        </div>
+
+
         <section class="metrics-grid">
             <!-- Card 1: Occupancy State -->
             <div class="card">
@@ -697,5 +712,235 @@ header {
     </div>
 
     <script src="/static/app.js"></script>
+
+    <!-- In-Browser Room Calibration Wizard Modal -->
+    
+
+                <div class="wizard-actions">
+                    <button id="btn-sample-near" class="btn-wizard-primary" onclick="recordSample('desk')">Capture Near Baseline (5s)</button>
+                    <button id="btn-next-step3" class="btn-wizard-secondary" style="display: none;" onclick="proceedToStep(3)">Next: Far Anchor &rarr;</button>
+                </div>
+            </div>
+
+            <!-- Step 3: Far Field / Perimeter -->
+            <div id="cal-step-3" class="wizard-step" style="display: none;">
+                <div class="step-indicator">STEP 2 OF 2 &bull; PERIMETER BOUNDARY</div>
+                <h4 class="step-title">Perimeter Boundary Anchor (2.0m &ndash; 2.5m)</h4>
+                <p class="wizard-desc">Stand up and move to the room's perimeter boundary. This measures unobstructed line-of-sight scatter.</p>
+
+                <div class="sample-display-box">
+                    <div class="sample-status-text" id="sample-away-status">Ready to measure</div>
+                    <div class="sample-val" id="sample-away-val">-- dBm</div>
+                    <div class="sample-progress-bar"><div class="progress-fill" id="sample-away-progress"></div></div>
+                </div>
+
+                <div class="wizard-actions">
+                    <button id="btn-sample-away" class="btn-wizard-primary" onclick="recordSample('away')">Capture Far Baseline (5s)</button>
+                    <button id="btn-next-step4" class="btn-wizard-secondary" style="display: none;" onclick="proceedToStep(4)">Review Profile &rarr;</button>
+                </div>
+            </div>
+
+            <!-- Step 4: Review & Apply -->
+            <div id="cal-step-4" class="wizard-step" style="display: none;">
+                <div class="step-indicator">COMPLETE</div>
+                <h4 class="step-title">Calibration Finished</h4>
+                <p class="wizard-desc">Review your room profile before activating it.</p>
+
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <span class="summary-lbl">Profile Name</span>
+                        <span class="summary-val highlight" id="sum-name">--</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-lbl">Near Shadow</span>
+                        <span class="summary-val" id="sum-near">-- dBm</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-lbl">Perimeter Floor</span>
+                        <span class="summary-val" id="sum-away">-- dBm</span>
+                    </div>
+                </div>
+
+                <div class="wizard-actions">
+                    <button class="btn-wizard-primary" onclick="saveAndApplyPreset()">Save & Activate Preset</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Advanced RF Multi-Path Characterization Wizard -->
+    <div id="calibration-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-card advanced-modal">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-badge">DSP MULTI-PATH ENGINE</div>
+                    <h3 class="modal-title">Room Propagation Calibration</h3>
+                    <p class="modal-subtitle">Calibrate multi-path scatter, torso shadow absorption, and path loss parameters</p>
+                </div>
+                <button class="modal-close-btn" onclick="closeCalibrationModal()">&times;</button>
+            </div>
+
+            <!-- Stage 1: Room Identification & Geometry -->
+            <div id="cal-step-1" class="wizard-step">
+                <p class="wizard-desc">Characterize your room's physical wireless multipath. This profiles the RF propagation constants (P₀, Path Loss n, Noise Floor σ²) to deliver pinpoint distance and presence accuracy.</p>
+                
+                <div class="wizard-input-group">
+                    <label for="cal-room-name">Room / Zone Name</label>
+                    <input type="text" id="cal-room-name" class="wizard-input" placeholder="e.g. Master Bedroom, Lab, Studio" maxlength="18">
+                </div>
+
+                <div class="dist-grid">
+                    <div class="dist-col">
+                        <label>Desk Distance (m)</label>
+                        <input type="number" id="cal-dist-desk" class="wizard-input" value="0.9" step="0.1" min="0.4" max="2.0">
+                    </div>
+                    <div class="dist-col">
+                        <label>Perimeter Boundary (m)</label>
+                        <input type="number" id="cal-dist-far" class="wizard-input" value="2.4" step="0.1" min="1.5" max="5.0">
+                    </div>
+                </div>
+
+                <div class="wizard-actions">
+                    <button class="btn-wizard-primary" onclick="proceedToStep(2)">Begin Phase 1: Noise Floor &rarr;</button>
+                </div>
+            </div>
+
+            <!-- Stage 2: Vacant Room Noise Floor -->
+            <div id="cal-step-2" class="wizard-step" style="display: none;">
+                <div class="step-indicator">PHASE 1 OF 3 &bull; AMBIENT RF NOISE FLOOR</div>
+                <h4 class="step-title">Vacant Room Baseline (σ²)</h4>
+                <p class="wizard-desc">Step outside the room or freeze stationary far away. This records baseline static multi-path reflections and carrier jitter.</p>
+
+                <div class="rf-metric-grid">
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">AMBIENT CARRIER</span>
+                        <span class="rf-gauge-val" id="stage1-val">-- dBm</span>
+                    </div>
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">NOISE VARIANCE (σ²)</span>
+                        <span class="rf-gauge-val" id="stage1-var">--</span>
+                    </div>
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">SAMPLE FIDELITY</span>
+                        <span class="rf-gauge-val" id="stage1-rate">0 Hz</span>
+                    </div>
+                </div>
+
+                <div class="sample-progress-bar"><div class="progress-fill" id="stage1-progress"></div></div>
+                <div class="stage-status-text" id="stage1-status">Ready to sample room background</div>
+
+                <div class="wizard-actions">
+                    <button id="btn-sample-stage1" class="btn-wizard-primary" onclick="executeAdvancedSample('vacant')">Capture Noise Floor (5s)</button>
+                    <button id="btn-next-stage1" class="btn-wizard-secondary" style="display: none;" onclick="proceedToStep(3)">Next: Seated Torso Shadow &rarr;</button>
+                </div>
+            </div>
+
+            <!-- Stage 3: Seated Torso Absorption -->
+            <div id="cal-step-3" class="wizard-step" style="display: none;">
+                <div class="step-indicator">PHASE 2 OF 3 &bull; DIRECT-PATH ATTENUATION</div>
+                <h4 class="step-title">Desk Torso Shadow (P₀ Reference)</h4>
+                <p class="wizard-desc">Sit naturally at your desk. Your torso forms an RF shadow that attenuates direct carrier waves and generates breathing micromotions.</p>
+
+                <div class="rf-metric-grid">
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">ATTENUATED RSSI</span>
+                        <span class="rf-gauge-val" id="stage2-val">-- dBm</span>
+                    </div>
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">SHADOW ABSORPTION</span>
+                        <span class="rf-gauge-val" id="stage2-shadow">-- dB</span>
+                    </div>
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">PACKET DENSITY</span>
+                        <span class="rf-gauge-val" id="stage2-rate">0 pkts/s</span>
+                    </div>
+                </div>
+
+                <div class="sample-progress-bar"><div class="progress-fill" id="stage2-progress"></div></div>
+                <div class="stage-status-text" id="stage2-status">Ready to measure torso shadow</div>
+
+                <div class="wizard-actions">
+                    <button id="btn-sample-stage2" class="btn-wizard-primary" onclick="executeAdvancedSample('desk')">Capture Seated Baseline (5s)</button>
+                    <button id="btn-next-stage2" class="btn-wizard-secondary" style="display: none;" onclick="proceedToStep(4)">Next: Kinetic Motion Walk &rarr;</button>
+                </div>
+            </div>
+
+            <!-- Stage 4: Kinetic Doppler Motion Walk -->
+            <div id="cal-step-4" class="wizard-step" style="display: none;">
+                <div class="step-indicator">PHASE 3 OF 3 &bull; BOUNDARY DOPPLER PROFILE</div>
+                <h4 class="step-title">Perimeter Kinetic Doppler Band ($0.3 - 5.0	ext{ Hz}$)</h4>
+                <p class="wizard-desc">Stand up and walk slowly back and forth across the room boundary. This profiles maximum kinetic Doppler energy and multipath dynamic range.</p>
+
+                <div class="rf-metric-grid">
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">PERIMETER RSSI</span>
+                        <span class="rf-gauge-val" id="stage3-val">-- dBm</span>
+                    </div>
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">KINETIC ENERGY</span>
+                        <span class="rf-gauge-val" id="stage3-kin">-- RMS</span>
+                    </div>
+                    <div class="rf-gauge">
+                        <span class="rf-gauge-lbl">SIGNAL DYNAMICS</span>
+                        <span class="rf-gauge-val" id="stage3-rate">0 pkts/s</span>
+                    </div>
+                </div>
+
+                <div class="sample-progress-bar"><div class="progress-fill" id="stage3-progress"></div></div>
+                <div class="stage-status-text" id="stage3-status">Ready to measure kinetic movement</div>
+
+                <div class="wizard-actions">
+                    <button id="btn-sample-stage3" class="btn-wizard-primary" onclick="executeAdvancedSample('far')">Capture Kinetic Walk (5s)</button>
+                    <button id="btn-next-stage3" class="btn-wizard-secondary" style="display: none;" onclick="proceedToStep(5)">Synthesize Matrix &rarr;</button>
+                </div>
+            </div>
+
+            <!-- Stage 5: Synthesis & Review -->
+            <div id="cal-step-5" class="wizard-step" style="display: none;">
+                <div class="step-indicator">CALIBRATION SYNTHESIZED</div>
+                <h4 class="step-title">Propagation Model Parameters</h4>
+                <p class="wizard-desc">Physics parameters computed by the propagation matrix solver:</p>
+
+                <div class="matrix-card">
+                    <div class="matrix-header">
+                        <span class="matrix-room-title" id="res-room-name">Room</span>
+                        <span class="fidelity-tag" id="res-fidelity-tag">100% Fidelity</span>
+                    </div>
+                    <div class="matrix-grid">
+                        <div class="param-node">
+                            <span class="p-name">Path Loss Exp (n)</span>
+                            <span class="p-val" id="res-n">--</span>
+                        </div>
+                        <div class="param-node">
+                            <span class="p-name">1m Ref (P₀)</span>
+                            <span class="p-val" id="res-p0">-- dBm</span>
+                        </div>
+                        <div class="param-node">
+                            <span class="p-name">Torso Shadow</span>
+                            <span class="p-val" id="res-shadow">-- dB</span>
+                        </div>
+                        <div class="param-node">
+                            <span class="p-name">Noise Floor (σ²)</span>
+                            <span class="p-val" id="res-var">--</span>
+                        </div>
+                        <div class="param-node">
+                            <span class="p-name">Kinetic Cutoff</span>
+                            <span class="p-val" id="res-kin">-- RMS</span>
+                        </div>
+                        <div class="param-node">
+                            <span class="p-name">Dynamic Range</span>
+                            <span class="p-val" id="res-dyn">-- dB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="wizard-actions">
+                    <button class="btn-wizard-primary" onclick="finalizeAdvancedCalibration()">Save & Deploy Room Profile</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

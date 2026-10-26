@@ -1,140 +1,140 @@
-import json
-import pathlib
+"""Stabilized Proximity & Distance Tracking Engine with Kinetic Gating and Desk Deadband."""
+
+import math
 import time
-from collections import deque
 import numpy as np
 
 
 class ProximityDetector:
-
-    def __init__(
-        self,
-        ref_rssi_at_1m: float = -48.0,
-        path_loss_n: float = 3.2,
-        history_len: int = 20,
-        vector_window_sec: float = 0.8,
-    ):
-        self.history_len = history_len
-        self.vector_window_sec = vector_window_sec
-
-        self.rssi_buffer = deque(maxlen=history_len)
-        self.doppler_energy_buffer = deque(maxlen=history_len)
-        self.trajectory_buffer = deque(maxlen=35)
-        self.smoothed_distance = 1.8
-
-        # Project-anchored profile path
-        profile_path = pathlib.Path(__file__).resolve().parent / "profile.json"
-        if profile_path.exists():
-            try:
-                prof = json.loads(profile_path.read_text(encoding="utf-8"))
-                self.desk_mean = float(prof.get("desk_mean", -49.07))
-                self.away_mean = float(prof.get("away_mean", -38.09))
-                self.desk_std = float(prof.get("desk_std", 7.94))
-                self.away_std = float(prof.get("away_std", 7.20))
-            except Exception:
-                self._load_defaults()
-        else:
-            self._load_defaults()
-
-    def _load_defaults(self):
+    def __init__(self, ref_rssi_at_1m: float = -48.0, path_loss_n: float = 3.2):
+        self.ref_rssi_at_1m = float(ref_rssi_at_1m)
+        self.path_loss_n = float(path_loss_n)
+        
+        # Factory / Default profile anchors
         self.desk_mean = -49.07
         self.away_mean = -38.09
-        self.desk_std = 7.94
-        self.away_std = 7.20
+        self.vacant_variance = 0.0412
+        self.baseline_rssi = self.away_mean
 
-    def process(self, raw_rssi: float, filtered_doppler_sample: float) -> dict:
+        # Internal filter states
+        self.smoothed_rssi = self.desk_mean
+        self.filtered_distance = 0.90
+        self.last_raw_rssi = self.desk_mean
+        self.last_update_time = time.time()
+        
+        # Motion & state hysteresis
+        self.desk_locked = True
+        self.motion_history = []
+        self.direction_votes = []
+        self.last_valid_direction = "STATIONARY"
+
+    def update_profile(self, desk_mean: float, away_mean: float, ref_rssi: float = None, path_loss_n: float = None, vacant_variance: float = None):
+        """Dynamically updates calibration anchors without restarting the server."""
+        self.desk_mean = float(desk_mean)
+        self.away_mean = float(away_mean)
+        self.baseline_rssi = float(away_mean)
+        if ref_rssi is not None:
+            self.ref_rssi_at_1m = float(ref_rssi)
+        if path_loss_n is not None:
+            self.path_loss_n = float(path_loss_n)
+        if vacant_variance is not None:
+            self.vacant_variance = float(vacant_variance)
+
+    def _rssi_to_distance(self, rssi: float) -> float:
+        """Computes physical distance using the log-distance path loss model bounded to indoor bounds."""
+        exp = (self.ref_rssi_at_1m - rssi) / (10.0 * max(1.2, self.path_loss_n))
+        raw_d = math.pow(10.0, exp)
+        return max(0.4, min(4.5, raw_d))
+
+    def process(self, raw_rssi: float, doppler_sample: float) -> dict:
+        """Processes live packet telemetry with kinetic gating, desk deadband, and adaptive filtering."""
         now = time.time()
-        self.rssi_buffer.append(raw_rssi)
-        self.doppler_energy_buffer.append(filtered_doppler_sample)
+        dt = max(0.01, now - self.last_update_time)
+        self.last_update_time = now
+        self.last_raw_rssi = raw_rssi
 
-        if len(self.rssi_buffer) < 6:
-            return {
-                "estimated_distance_m": 1.8,
-                "kinetic_energy": 0.0,
-                "zone": "CALIBRATING",
-                "direction": "STATIONARY",
-                "radial_velocity_mps": 0.0,
-            }
+        # 1. Kinetic energy evaluation from Doppler bandpass signal
+        kinetic_energy = abs(float(doppler_sample))
+        self.motion_history.append(kinetic_energy)
+        if len(self.motion_history) > 20:
+            self.motion_history.pop(0)
+        
+        avg_kinetic = float(np.mean(self.motion_history)) if self.motion_history else 0.0
+        is_actively_moving = avg_kinetic > 0.065
 
-        # 1. Clean RSSI array (allow wider envelope so body shadow responds instantly)
-        raw_arr = np.array(self.rssi_buffer)
-        med = float(np.median(raw_arr))
-        clean = raw_arr[np.abs(raw_arr - med) <= 18.0]
-        if len(clean) < 3:
-            clean = raw_arr
+        # 2. Desk Shadow Proximity Evaluation
+        # If signal is near desk baseline (-49 dBm) and motion is low, human is seated
+        rssi_delta_from_desk = abs(raw_rssi - self.desk_mean)
+        
+        if not is_actively_moving and rssi_delta_from_desk <= 3.5:
+            self.desk_locked = True
+        elif is_actively_moving and rssi_delta_from_desk > 5.0:
+            self.desk_locked = False
 
-        # Fast responsive RSSI (weighted 60% recent average, 40% median)
-        recent_mean = float(np.mean(clean[-8:]))
-        effective_rssi = (0.60 * recent_mean) + (0.40 * float(np.median(clean)))
-        rssi_std = float(np.std(clean))
-        kinetic_rms = float(
-            np.sqrt(np.mean(np.array(self.doppler_energy_buffer) ** 2))
-        )
+        # 3. Adaptive Dual-Rate Filtering (Kinetic Gating)
+        if self.desk_locked:
+            # Heavily damped filter while seated to eliminate all carrier jitter
+            alpha_rssi = 0.025
+            alpha_dist = 0.020
+            target_desk_dist = 0.88
+            
+            # Smoothly attract and lock to desk position
+            self.smoothed_rssi = (alpha_rssi * raw_rssi) + ((1.0 - alpha_rssi) * self.smoothed_rssi)
+            self.filtered_distance = (alpha_dist * target_desk_dist) + ((1.0 - alpha_dist) * self.filtered_distance)
+            
+            # Clamp micro-drift inside the desk deadband
+            if abs(self.filtered_distance - target_desk_dist) < 0.12:
+                self.filtered_distance = target_desk_dist
 
-        # 2. Torso Shadow Interpolation
-        # desk_mean = -49.07 dBm (attenuated/shadowed)
-        # away_mean = -38.09 dBm (direct open line of sight)
-        total_span = max(1.0, abs(self.desk_mean - self.away_mean))
-        raw_proximity = (self.away_mean - effective_rssi) / total_span
-        raw_proximity = float(np.clip(raw_proximity, 0.0, 1.0))
+            zone = "DESK"
+            direction = "STATIONARY"
 
-        # Micro-presence booster: When near desk, even breathing (rssi_std > 0.8)
-        # solidifies proximity without needing to swing your arms
-        if raw_proximity > 0.35 and rssi_std > 0.8:
-            proximity_score = min(1.0, raw_proximity + 0.20)
         else:
-            proximity_score = raw_proximity
+            # Active movement: dynamic responsiveness to track walking cadence
+            alpha_rssi = 0.25 if is_actively_moving else 0.08
+            alpha_dist = 0.20 if is_actively_moving else 0.06
 
-        # 3. Direct Distance Mapping (0.45m at desk up to 2.6m away)
-        target_d = 0.45 + ((1.0 - proximity_score) * 2.05)
+            self.smoothed_rssi = (alpha_rssi * raw_rssi) + ((1.0 - alpha_rssi) * self.smoothed_rssi)
+            calculated_distance = self._rssi_to_distance(self.smoothed_rssi)
+            
+            prev_dist = self.filtered_distance
+            self.filtered_distance = (alpha_dist * calculated_distance) + ((1.0 - alpha_dist) * self.filtered_distance)
 
-        # 4. Asymmetric Smoothing Filter:
-        # Snappy approach (alpha=0.45), steady departure (alpha=0.30)
-        alpha = 0.45 if target_d < self.smoothed_distance else 0.30
-        self.smoothed_distance = round(
-            (alpha * target_d) + ((1.0 - alpha) * self.smoothed_distance), 2
-        )
-        estimated_meters = self.smoothed_distance
+            # 4. Debounced Direction Classification (Avoid flicker)
+            velocity = (self.filtered_distance - prev_dist) / dt
+            if abs(velocity) < 0.15 or not is_actively_moving:
+                vote = "STATIONARY"
+            elif velocity < -0.15:
+                vote = "APPROACHING"
+            else:
+                vote = "RECEDING"
 
-        self.trajectory_buffer.append((now, estimated_meters))
+            self.direction_votes.append(vote)
+            if len(self.direction_votes) > 10:
+                self.direction_votes.pop(0)
 
-        # 5. Responsive Directional Vectoring
-        direction = "STATIONARY"
-        radial_velocity = 0.0
+            # Majority vote prevents single-packet direction flips
+            direction = max(set(self.direction_votes), key=self.direction_votes.count)
 
-        while (
-            self.trajectory_buffer
-            and now - self.trajectory_buffer[0][0] > self.vector_window_sec
-        ):
-            self.trajectory_buffer.popleft()
+            # Zone categorization
+            if self.filtered_distance <= 1.2:
+                zone = "DESK"
+            elif self.filtered_distance <= 1.9:
+                zone = "MID"
+            elif self.filtered_distance <= 2.8:
+                zone = "PERIMETER"
+            else:
+                zone = "AWAY"
 
-        if len(self.trajectory_buffer) >= 4:
-            t_first, d_first = self.trajectory_buffer[0]
-            t_last, d_last = self.trajectory_buffer[-1]
-            dt = t_last - t_first
-
-            if dt > 0.12:
-                radial_velocity = round((d_last - d_first) / dt, 2)
-                # Sensitive approach / receding thresholds
-                if radial_velocity <= -0.08:
-                    direction = "APPROACHING"
-                elif radial_velocity >= 0.08:
-                    direction = "RECEDING"
-
-        # 6. Spatial Zones
-        if estimated_meters <= 1.0:
-            zone = "IMMEDIATE (At Desk)"
-        elif estimated_meters <= 2.2:
-            zone = "NEAR (Inside Room)"
-        elif estimated_meters <= 3.2:
-            zone = "MID (Perimeter / Door)"
-        else:
-            zone = "FAR (Adjacent Room / Hallway)"
+        final_distance = round(float(self.filtered_distance), 2)
 
         return {
-            "estimated_distance_m": estimated_meters,
-            "kinetic_energy": round(kinetic_rms, 3),
+            "estimated_distance_m": final_distance,
             "zone": zone,
             "direction": direction,
-            "radial_velocity_mps": radial_velocity,
+            "proximity": "ACTIVE",
+            "is_seated": self.desk_locked,
+            "kinetic_energy": round(avg_kinetic, 4),
+            "smoothed_rssi": round(float(self.smoothed_rssi), 2),
+            "raw_rssi": round(float(raw_rssi), 2)
         }

@@ -1,7 +1,7 @@
 {
-    "desk_mean": -49.07,
-    "desk_std": 7.94,
-    "away_mean": -38.09,
-    "away_std": 7.20,
-    "timestamp": 1761373800.0
+  "name": "Default",
+  "desk_mean": -49.07,
+  "away_mean": -38.09,
+  "description": "Calibrated Baseline",
+  "created_at": "Initial"
 }

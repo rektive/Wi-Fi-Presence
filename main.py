@@ -1,19 +1,19 @@
-import atexit
-import subprocess
 #!/usr/bin/env python3
 """Main execution entry point: orchestrates capture, DSP pipeline, and ASGI server."""
 
 import asyncio
+import atexit
 import collections
 import json
 import logging
+import os
+import subprocess
 import threading
 import time
 import numpy as np
 import uvicorn
+
 from config.settings import settings
-import os
-ENABLE_PROXIMITY = os.getenv("ENABLE_PROXIMITY", "True").lower() in ("true", "1", "yes")
 from src.capture import MonitorSniffer, ActiveProber
 from src.processing.filters import hampel_filter, butterworth_bandpass
 from src.processing.baseline import DynamicBaseline
@@ -23,7 +23,18 @@ from src.detector.crowd_estimator import CrowdEstimator
 from src.server.app import app, ws_manager
 from proximity import ProximityDetector
 
+ENABLE_PROXIMITY = os.getenv("ENABLE_PROXIMITY", "True").lower() in ("true", "1", "yes")
+
 proximity_detector = ProximityDetector(ref_rssi_at_1m=-48.0, path_loss_n=3.2)
+app.state.proximity_tracker = proximity_detector
+
+def _cleanup_pings():
+    try:
+        subprocess.run(["killall", "-9", "ping"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+atexit.register(_cleanup_pings)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,14 +53,16 @@ def dsp_pipeline_loop(loop: asyncio.AbstractEventLoop):
         ingestor = ActiveProber(settings.ROUTER_IP, rate_hz=settings.SAMPLING_RATE_HZ)
 
     # Automatically illuminate the room with 50 Hz packet stream in monitor mode
-    ping_proc = None
     if settings.CAPTURE_MODE == "monitor":
         logger.info(f"Auto-spawning background packet stream to {settings.ROUTER_IP} at 50 Hz...")
-        ping_proc = subprocess.Popen(
-            ["ping", "-i", "0.02", settings.ROUTER_IP],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        try:
+            subprocess.Popen(
+                ["ping", "-i", "0.02", settings.ROUTER_IP],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            logger.warning(f"Could not auto-start illumination ping: {e}")
 
     ingestor.start()
 
@@ -86,7 +99,7 @@ def dsp_pipeline_loop(loop: asyncio.AbstractEventLoop):
         if sample is None:
             empty_streak += 1
             if empty_streak % 30 == 0:
-                logger.warning("[NO DATA] 0 packets in 3s! Verify that 'sudo ping -i 0.02 192.168.2.1' is running in Terminal 1.")
+                logger.warning(f"[NO DATA] 0 packets in 3s! Verify that {settings.WIFI_INTERFACE} is on Channel 11.")
             continue
 
         empty_streak = 0
@@ -172,11 +185,9 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # Launch DSP engine on dedicated worker thread
     dsp_thread = threading.Thread(target=dsp_pipeline_loop, args=(loop,), daemon=True)
     dsp_thread.start()
 
-    # Start FastAPI server on main thread
     config = uvicorn.Config(
         app=app,
         host=settings.WEB_HOST,
@@ -185,16 +196,11 @@ def main():
         loop="asyncio",
     )
     server = uvicorn.Server(config)
-    loop.run_until_complete(server.serve())
+    try:
+        loop.run_until_complete(server.serve())
+    finally:
+        _cleanup_pings()
 
 
 if __name__ == "__main__":
     main()
-
-def _cleanup_pings():
-    try:
-        import subprocess
-        subprocess.run(["killall", "-9", "ping"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
-atexit.register(_cleanup_pings)

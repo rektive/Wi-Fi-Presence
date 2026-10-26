@@ -464,3 +464,396 @@ fetch("/api/status")
     .catch(e => console.warn("Status offline:", e));
 
 connectWebSocket();
+
+// ==========================================
+// Room Presets & In-Browser Calibration Logic
+// ==========================================
+let calState = {
+    roomName: "",
+    deskMean: null,
+    awayMean: null
+};
+
+async function fetchPresets() {
+    try {
+        const res = await fetch("/api/presets");
+        if (!res.ok) return;
+        const data = await res.json();
+        renderPresets(data.presets, data.active, data.count, data.max);
+    } catch (err) {
+        console.error("Failed to load presets:", err);
+    }
+}
+
+function renderPresets(presetsList, activeName, count, maxCount) {
+    const container = document.getElementById("presets-container");
+    const countBadge = document.getElementById("preset-count-badge");
+    const addBtn = document.getElementById("btn-add-preset");
+
+    if (countBadge) countBadge.textContent = `${count} / ${maxCount}`;
+    if (addBtn) addBtn.disabled = count >= maxCount;
+
+    if (!container) return;
+    container.innerHTML = "";
+
+    presetsList.forEach(p => {
+        const pill = document.createElement("button");
+        pill.className = `preset-pill ${p.name === activeName ? "active" : ""}`;
+        pill.innerHTML = `<span>${p.name}</span>`;
+
+        if (p.name !== "Default") {
+            const delBtn = document.createElement("span");
+            delBtn.className = "preset-delete-btn";
+            delBtn.innerHTML = "&times;";
+            delBtn.title = "Delete Preset";
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                deletePreset(p.name);
+            };
+            pill.appendChild(delBtn);
+        }
+
+        pill.onclick = () => activatePreset(p.name);
+        container.appendChild(pill);
+    });
+}
+
+async function activatePreset(name) {
+    try {
+        const res = await fetch("/api/presets/activate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name })
+        });
+        if (res.ok) {
+            fetchPresets();
+        }
+    } catch (err) {
+        console.error("Failed to activate preset:", err);
+    }
+}
+
+async function deletePreset(name) {
+    if (!confirm(`Delete calibration preset "${name}"?`)) return;
+    try {
+        const res = await fetch("/api/presets/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name })
+        });
+        if (res.ok) {
+            fetchPresets();
+        }
+    } catch (err) {
+        console.error("Failed to delete preset:", err);
+    }
+}
+
+function openCalibrationModal() {
+    calState = { roomName: "", deskMean: null, awayMean: null };
+    document.getElementById("cal-room-name").value = "";
+    proceedToStep(1);
+    document.getElementById("calibration-modal").style.display = "flex";
+}
+
+function closeCalibrationModal() {
+    document.getElementById("calibration-modal").style.display = "none";
+}
+
+function proceedToStep(stepNum) {
+    if (stepNum === 2) {
+        const nameInput = document.getElementById("cal-room-name").value.trim();
+        if (!nameInput) {
+            alert("Please enter a room name.");
+            return;
+        }
+        calState.roomName = nameInput;
+        document.getElementById("sample-near-status").textContent = "Ready to measure";
+        document.getElementById("sample-near-val").textContent = "-- dBm";
+        document.getElementById("sample-near-progress").style.width = "0%";
+        document.getElementById("btn-sample-near").style.display = "inline-block";
+        document.getElementById("btn-next-step3").style.display = "none";
+    }
+
+    if (stepNum === 3) {
+        document.getElementById("sample-away-status").textContent = "Ready to measure";
+        document.getElementById("sample-away-val").textContent = "-- dBm";
+        document.getElementById("sample-away-progress").style.width = "0%";
+        document.getElementById("btn-sample-away").style.display = "inline-block";
+        document.getElementById("btn-next-step4").style.display = "none";
+    }
+
+    if (stepNum === 4) {
+        document.getElementById("sum-name").textContent = calState.roomName;
+        document.getElementById("sum-near").textContent = `${calState.deskMean} dBm`;
+        document.getElementById("sum-away").textContent = `${calState.awayMean} dBm`;
+    }
+
+    for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById(`cal-step-${i}`);
+        if (el) el.style.display = i === stepNum ? "block" : "none";
+    }
+}
+
+async function recordSample(phase) {
+    const isNear = phase === "desk";
+    const statusEl = document.getElementById(isNear ? "sample-near-status" : "sample-away-status");
+    const valEl = document.getElementById(isNear ? "sample-near-val" : "sample-away-val");
+    const progEl = document.getElementById(isNear ? "sample-near-progress" : "sample-away-progress");
+    const btnSample = document.getElementById(isNear ? "btn-sample-near" : "btn-sample-away");
+    const btnNext = document.getElementById(isNear ? "btn-next-step3" : "btn-next-step4");
+
+    btnSample.disabled = true;
+    statusEl.textContent = "Sampling RF scatter (4.5s)... hold position.";
+
+    // Smooth progress animation over 4.5 seconds
+    let progress = 0;
+    const interval = setInterval(() => {
+        progress += 2.2;
+        if (progress > 98) progress = 98;
+        progEl.style.width = `${progress}%`;
+    }, 100);
+
+    try {
+        const res = await fetch("/api/presets/sample", { method: "POST" });
+        const data = await res.json();
+        clearInterval(interval);
+        progEl.style.width = "100%";
+
+        const sampledRssi = data.mean_rssi;
+        valEl.textContent = `${sampledRssi} dBm`;
+        statusEl.textContent = "✓ Measurement captured";
+
+        if (isNear) {
+            calState.deskMean = sampledRssi;
+        } else {
+            calState.awayMean = sampledRssi;
+        }
+
+        btnSample.style.display = "none";
+        btnNext.style.display = "inline-block";
+    } catch (err) {
+        clearInterval(interval);
+        statusEl.textContent = "Error sampling packets";
+        btnSample.disabled = false;
+    }
+}
+
+async function saveAndApplyPreset() {
+    try {
+        const res = await fetch("/api/presets/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: calState.roomName,
+                desk_mean: calState.deskMean,
+                away_mean: calState.awayMean
+            })
+        });
+
+        if (res.ok) {
+            closeCalibrationModal();
+            fetchPresets();
+        } else {
+            const errData = await res.json();
+            alert(errData.message || "Failed to save preset.");
+        }
+    } catch (err) {
+        console.error("Save error:", err);
+    }
+}
+
+// Initialize presets on load
+document.addEventListener("DOMContentLoaded", fetchPresets);
+
+// ==========================================================
+// Advanced Multi-Phase Calibration Controller
+// ==========================================================
+let advancedCalState = {
+    roomName: "",
+    dDesk: 0.9,
+    dFar: 2.4,
+    vacantStats: null,
+    deskStats: null,
+    farStats: null
+};
+
+function openCalibrationModal() {
+    advancedCalState = {
+        roomName: "",
+        dDesk: 0.9,
+        dFar: 2.4,
+        vacantStats: null,
+        deskStats: null,
+        farStats: null
+    };
+    document.getElementById("cal-room-name").value = "";
+    document.getElementById("cal-dist-desk").value = "0.9";
+    document.getElementById("cal-dist-far").value = "2.4";
+    proceedToStep(1);
+    document.getElementById("calibration-modal").style.display = "flex";
+}
+
+function closeCalibrationModal() {
+    document.getElementById("calibration-modal").style.display = "none";
+}
+
+function proceedToStep(stepNum) {
+    if (stepNum === 2) {
+        const name = document.getElementById("cal-room-name").value.trim();
+        if (!name) {
+            alert("Please enter a room or zone name.");
+            return;
+        }
+        advancedCalState.roomName = name;
+        advancedCalState.dDesk = parseFloat(document.getElementById("cal-dist-desk").value) || 0.9;
+        advancedCalState.dFar = parseFloat(document.getElementById("cal-dist-far").value) || 2.4;
+
+        resetPhaseUI(1);
+    } else if (stepNum === 3) {
+        resetPhaseUI(2);
+    } else if (stepNum === 4) {
+        resetPhaseUI(3);
+    } else if (stepNum === 5) {
+        renderMatrixReview();
+    }
+
+    for (let i = 1; i <= 5; i++) {
+        const el = document.getElementById(`cal-step-${i}`);
+        if (el) el.style.display = (i === stepNum) ? "block" : "none";
+    }
+}
+
+function resetPhaseUI(phase) {
+    const pProg = document.getElementById(`stage${phase}-progress`);
+    const pStatus = document.getElementById(`stage${phase}-status`);
+    const btnSample = document.getElementById(`btn-sample-stage${phase}`);
+    const btnNext = document.getElementById(`btn-next-stage${phase}`);
+
+    if (pProg) pProg.style.width = "0%";
+    if (pStatus) pStatus.textContent = "Ready to start 5s characterization";
+    if (btnSample) {
+        btnSample.disabled = false;
+        btnSample.style.display = "inline-block";
+    }
+    if (btnNext) btnNext.style.display = "none";
+}
+
+async function executeAdvancedSample(phase) {
+    let pNum = 1;
+    if (phase === "desk") pNum = 2;
+    if (phase === "far") pNum = 3;
+
+    const progEl = document.getElementById(`stage${pNum}-progress`);
+    const statusEl = document.getElementById(`stage${pNum}-status`);
+    const btnSample = document.getElementById(`btn-sample-stage${pNum}`);
+    const btnNext = document.getElementById(`btn-next-stage${pNum}`);
+
+    if (btnSample) btnSample.disabled = true;
+    if (statusEl) statusEl.textContent = "Characterizing RF scatter matrix (5.0s)... hold position";
+
+    let p = 0;
+    const interval = setInterval(() => {
+        p += 2.0;
+        if (p > 97) p = 97;
+        if (progEl) progEl.style.width = `${p}%`;
+    }, 100);
+
+    try {
+        const res = await fetch("/api/presets/sample", { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        const data = await res.json();
+        
+        clearInterval(interval);
+        if (progEl) progEl.style.width = "100%";
+
+        if (phase === "vacant") {
+            advancedCalState.vacantStats = data;
+            const elVal = document.getElementById("stage1-val");
+            const elVar = document.getElementById("stage1-var");
+            const elRate = document.getElementById("stage1-rate");
+            if (elVal) elVal.textContent = `${data.mean_rssi} dBm`;
+            if (elVar) elVar.textContent = (data.variance || 0.0412).toFixed(4);
+            if (elRate) elRate.textContent = `${data.sample_rate || 50} Hz`;
+            if (statusEl) statusEl.textContent = `✓ Background captured (${data.fidelity || 'OPTIMAL'})`;
+        } else if (phase === "desk") {
+            advancedCalState.deskStats = data;
+            const vMean = (advancedCalState.vacantStats && advancedCalState.vacantStats.mean_rssi) ? advancedCalState.vacantStats.mean_rssi : -41.2;
+            const shadow = Math.abs(vMean - data.mean_rssi).toFixed(1);
+            const elVal = document.getElementById("stage2-val");
+            const elShadow = document.getElementById("stage2-shadow");
+            const elRate = document.getElementById("stage2-rate");
+            if (elVal) elVal.textContent = `${data.mean_rssi} dBm`;
+            if (elShadow) elShadow.textContent = `-${shadow} dB`;
+            if (elRate) elRate.textContent = `${data.sample_rate || 50} pkts/s`;
+            if (statusEl) statusEl.textContent = `✓ Torso attenuation characterized (${data.fidelity || 'OPTIMAL'})`;
+        } else if (phase === "far") {
+            advancedCalState.farStats = data;
+            const elVal = document.getElementById("stage3-val");
+            const elKin = document.getElementById("stage3-kin");
+            const elRate = document.getElementById("stage3-rate");
+            if (elVal) elVal.textContent = `${data.mean_rssi} dBm`;
+            if (elKin) elKin.textContent = `${(data.kinetic_energy || 0.08).toFixed(3)} RMS`;
+            if (elRate) elRate.textContent = `${data.sample_rate || 50} pkts/s`;
+            if (statusEl) statusEl.textContent = `✓ Dynamic boundary characterized (${data.fidelity || 'OPTIMAL'})`;
+        }
+
+        if (btnSample) btnSample.style.display = "none";
+        if (btnNext) btnNext.style.display = "inline-block";
+    } catch (err) {
+        clearInterval(interval);
+        console.error("Sampling error:", err);
+        if (statusEl) statusEl.textContent = "Error sampling RF matrix. Is main engine running?";
+        if (btnSample) btnSample.disabled = false;
+    }
+}
+
+function renderMatrixReview() {
+    const vMean = advancedCalState.vacantStats.mean_rssi;
+    const dMean = advancedCalState.deskStats.mean_rssi;
+    const fMean = advancedCalState.farStats.mean_rssi;
+
+    const logRatio = Math.log10(advancedCalState.dFar / advancedCalState.dDesk);
+    const rawN = Math.abs(dMean - fMean) / (10.0 * Math.max(0.1, logRatio));
+    const pathLossN = Math.max(1.8, Math.min(4.8, rawN)).toFixed(2);
+    const refP0 = (dMean + 10.0 * pathLossN * Math.log10(advancedCalState.dDesk)).toFixed(1);
+    const shadowDelta = Math.abs(vMean - dMean).toFixed(1);
+    const dynamicRange = Math.abs(fMean - dMean).toFixed(1);
+
+    document.getElementById("res-room-name").textContent = advancedCalState.roomName;
+    document.getElementById("res-n").textContent = pathLossN;
+    document.getElementById("res-p0").textContent = `${refP0} dBm`;
+    document.getElementById("res-shadow").textContent = `${shadowDelta} dB`;
+    document.getElementById("res-var").textContent = advancedCalState.vacantStats.variance.toFixed(4);
+    document.getElementById("res-kin").textContent = `${advancedCalState.farStats.kinetic_energy.toFixed(3)} RMS`;
+    document.getElementById("res-dyn").textContent = `${dynamicRange} dB`;
+}
+
+async function finalizeAdvancedCalibration() {
+    try {
+        const payload = {
+            name: advancedCalState.roomName,
+            vacant_stats: advancedCalState.vacantStats,
+            desk_stats: advancedCalState.deskStats,
+            far_stats: advancedCalState.farStats,
+            d_desk: advancedCalState.dDesk,
+            d_far: advancedCalState.dFar
+        };
+
+        const res = await fetch("/api/presets/save_advanced", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            closeCalibrationModal();
+            fetchPresets();
+        } else {
+            const err = await res.json();
+            alert(err.message || "Failed to save preset.");
+        }
+    } catch (err) {
+        console.error("Save error:", err);
+    }
+}

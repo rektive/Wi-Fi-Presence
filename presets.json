@@ -1,0 +1,12 @@
+{
+  "active": "Default",
+  "presets": {
+    "Default": {
+      "name": "Default",
+      "desk_mean": -49.07,
+      "away_mean": -38.09,
+      "description": "Calibrated Baseline",
+      "created_at": "Initial"
+    }
+  }
+}
