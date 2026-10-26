@@ -5,16 +5,26 @@ A real-time, non-invasive human presence detection, localization, and headcount 
 
 ---
 
+<p align="center">
+  <img src="Screenshot_2026-10-25-231339.png" alt="Wi-Fi RF Presence Radar Dashboard" width="100%">
+</p>
+
+---
+
 ## Overview & Architecture
 
 When a human moves within an indoor wireless environment, their body causes microscopic perturbations in the Wi-Fi direct-path and multipath fields. This pipeline processes physical-layer signal shifts using passive monitor-mode packet capture:
 
 - **Downlink Isolation Sniffer:** Filters strictly on the router's hardware transmitter address (TA), eliminating local PC transmission interference.
-- **Hampel Filter & Noise Gating:** Discards packet drops, frame corruption, and transient non-human RF artifacts.
-- **Kinetic Doppler Bandpass (0.3 – 5.0 Hz):** Extracts human motion cadences (walking, limb shifts, and breathing) using a Butterworth bandpass filter.
-- **Physical Torso Shadow & Dispersion Mapping:** Combines direct-path attenuation with multipath standard deviation ($\sigma$) to estimate radial distance ($0.4\text{m} - 4.5\text{m}$) from the receiving antenna.
-- **Hysteresis Dual-Counter Headcount:** Uses asymmetric temporal hold timers and Schmitt triggers to track **In-Radius** occupants versus **Total Room** occupants without threshold flapping.
-- **Obsidian Telemetry Dashboard:** Streams 50 Hz real-time waveforms, motion vectors, and a 60 FPS circular radar canvas via WebSockets.
+- **Hampel Filter & Noise Gating:** Discards packet drops, frame corruption, and transient non-human RF artifacts
+- **Kinetic Doppler Bandpass (0.3 – 5.0 Hz):** Extracts human motion cadences (walking, limb shifts, and breathing) using a Butterworth bandpass filter
+- **Kinetic Velocity Gating & Desk Deadband:** Applies adaptive dual-rate EMA smoothing ($\alpha=0.02$ when seated, $\alpha=0.25$ when walking) and locks the distance estimate at desk proximity ($0.88\text{m}$) while stationary to prevent carrier fading drift
+- **Through-Wall Isolation & Geofence Gating:** Filters 2.4 GHz drywall signal bleed (>2.5m) so movement in adjacent rooms does not falsely inflate internal room headcount.
+- **Multi-Target Detection & Radar Rendering:** Uses cross-scattering variance and micromotion analysis to identify 2+ occupants simultaneously and visualizes secondary targets on the radar canvas
+- **In-Browser 3-Phase Calibration Engine:** Characterizes room multipath parameters (ambient noise floor $\sigma^2_0$, seated torso shadow $P_0$, and path loss exponent $n$) directly in the web UI
+- **Dynamic Profile Preset System:** Saves up to 3 custom room calibrations with hot-swapping in memory (zero downtime or server restarts)
+- **Integrated Auto-Illumination:** Automatically spawns and cleans up a 50 Hz background packet stream on startup to provide consistent carrier illumination in monitor mode
+- **Obsidian Telemetry Dashboard:** Streams 50 Hz real-time waveforms, motion vectors, and a 60 FPS circular radar canvas via WebSockets
 
 ---
 
