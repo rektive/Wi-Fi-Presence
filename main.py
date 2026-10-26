@@ -148,7 +148,23 @@ def dsp_pipeline_loop(loop: asyncio.AbstractEventLoop):
             baseline_tracker.update(features.variance, is_disturbed=not is_vacant)
 
             # Predict occupant count
-            headcount = crowd_estimator.predict_occupants(features, is_room_vacant=is_vacant)
+            # Compute real-time proximity and distance first
+            if ENABLE_PROXIMITY:
+                prox_data = proximity_detector.process(float(val), float(filtered_win[-1]))
+            else:
+                prox_data = {"proximity": "DISABLED", "estimated_distance_m": None, "is_seated": False}
+
+            cur_dist = prox_data.get("estimated_distance_m", 1.0)
+            is_seated = prox_data.get("is_seated", False)
+            
+            # Predict in-room vs total RF targets (filtering through-wall interference)
+            in_radius_count, total_detected = crowd_estimator.predict_occupants(
+                features,
+                is_room_vacant=is_vacant,
+                distance_m=cur_dist,
+                is_seated=is_seated
+            )
+            headcount = in_radius_count
 
             # Compute real-time proximity and distance
             if ENABLE_PROXIMITY:
@@ -169,7 +185,10 @@ def dsp_pipeline_loop(loop: asyncio.AbstractEventLoop):
                 telemetry = {
                     "timestamp": now,
                     "state": current_state.value,
-                    "headcount": headcount,
+                    "headcount": in_radius_count,
+                    "in_radius_headcount": in_radius_count,
+                    "total_headcount": total_detected,
+                    "through_wall_detected": (total_detected > in_radius_count),
                     "raw_signal": float(raw_win[-1]),
                     "filtered_signal": float(hampel_win[-1]),
                     "variance": features.variance,

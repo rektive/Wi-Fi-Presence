@@ -857,3 +857,109 @@ async function finalizeAdvancedCalibration() {
         console.error("Save error:", err);
     }
 }
+
+
+// --- Multi-Target Radar UI Patch ---
+function renderMultiTargetRadar(telemetry) {
+    const radarContainer = document.querySelector('.radar-container') || document.querySelector('.perimeter-geofence');
+    if (!radarContainer) return;
+    
+    // Clear existing ghost blips
+    document.querySelectorAll('.ghost-blip').forEach(el => el.remove());
+    
+    const count = telemetry.headcount || 1;
+    const baseDist = telemetry.estimated_distance_m || 1.5;
+    
+    // Ensure primary blip exists
+    let primaryBlip = radarContainer.querySelector('.radar-blip');
+    if (!primaryBlip) {
+        primaryBlip = document.createElement('div');
+        primaryBlip.className = 'radar-blip';
+        radarContainer.appendChild(primaryBlip);
+    }
+    
+    // If room is vacant, hide blips
+    if (count === 0) {
+        primaryBlip.style.opacity = '0';
+        return;
+    }
+    primaryBlip.style.opacity = '1';
+    
+    // Calculate UI percentages for primary target (assuming max radius = 3.5m)
+    const maxRadarDist = 3.5;
+    const radiusPercent = Math.min(95, (baseDist / maxRadarDist) * 100);
+    
+    // Generate secondary targets if > 1 person
+    for (let i = 1; i < count; i++) {
+        const ghost = document.createElement('div');
+        ghost.className = 'radar-blip ghost-blip';
+        
+        // Offset secondary targets slightly in distance and angle for visualization
+        const offsetDist = Math.min(95, radiusPercent + (i * 12)); 
+        const randomAngle = (Math.random() * 360) + "deg";
+        
+        ghost.style.position = 'absolute';
+        ghost.style.width = '12px';
+        ghost.style.height = '12px';
+        ghost.style.backgroundColor = '#38bdf8';
+        ghost.style.borderRadius = '50%';
+        ghost.style.boxShadow = '0 0 10px #38bdf8';
+        ghost.style.top = '50%';
+        ghost.style.left = '50%';
+        ghost.style.transform = `translate(-50%, -50%) rotate(${randomAngle}) translateY(-${offsetDist}px)`;
+        ghost.style.transition = 'all 0.5s ease';
+        
+        radarContainer.appendChild(ghost);
+    }
+}
+
+
+// --- Wall-Isolated Radar & Headcount Rendering ---
+function updateOccupantUI(telemetry) {
+    const inRadiusEl = document.getElementById("headcount-in-radius") || document.querySelector('.metric-box:first-child .metric-val');
+    const totalEl = document.getElementById("headcount-total") || document.querySelector('.metric-box:last-child .metric-val');
+    
+    const inRadius = telemetry.in_radius_headcount !== undefined ? telemetry.in_radius_headcount : telemetry.headcount;
+    const total = telemetry.total_headcount !== undefined ? telemetry.total_headcount : inRadius;
+
+    if (inRadiusEl) inRadiusEl.textContent = inRadius;
+    if (totalEl) totalEl.textContent = total;
+
+    // Render targets on radar
+    const radarContainer = document.querySelector('.radar-container') || document.querySelector('.perimeter-geofence');
+    if (!radarContainer) return;
+
+    document.querySelectorAll('.ghost-blip').forEach(el => el.remove());
+    let primaryBlip = radarContainer.querySelector('.radar-blip');
+
+    if (inRadius === 0 && total === 0) {
+        if (primaryBlip) primaryBlip.style.opacity = '0';
+        return;
+    }
+
+    if (primaryBlip) {
+        primaryBlip.style.opacity = '1';
+        // Primary blip tracks your position
+        const dist = telemetry.estimated_distance_m || 0.9;
+        const radiusPx = Math.min(85, (dist / 2.5) * 85);
+        primaryBlip.style.transform = `translate(-50%, -50%) translateY(-${radiusPx}px)`;
+    }
+
+    // If another person is detected through the wall (>2.5m), display them outside the perimeter ring
+    if (telemetry.through_wall_detected) {
+        const wallBlip = document.createElement('div');
+        wallBlip.className = 'radar-blip ghost-blip';
+        wallBlip.style.position = 'absolute';
+        wallBlip.style.width = '10px';
+        wallBlip.style.height = '10px';
+        wallBlip.style.backgroundColor = 'rgba(251, 146, 60, 0.75)'; // Soft Amber
+        wallBlip.style.borderRadius = '50%';
+        wallBlip.style.boxShadow = '0 0 8px rgba(251, 146, 60, 0.6)';
+        wallBlip.style.top = '50%';
+        wallBlip.style.left = '50%';
+        // Render outside the 2.5m boundary circle
+        wallBlip.style.transform = `translate(-50%, -50%) rotate(45deg) translateY(-105px)`;
+        wallBlip.title = "Exterior Through-Wall Disturbance (>2.5m)";
+        radarContainer.appendChild(wallBlip);
+    }
+}
