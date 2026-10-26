@@ -2,7 +2,7 @@
 
 All notable changes, bug fixes, and feature additions for the Wi-Fi RF Presence Radar project.
 
-## [v1.3.0] - 2026-10-25
+## [v1.3.0]
 
 ### Added
 - **Multi-Target Radar Tracking:** Added visual radar blips for secondary and tertiary occupants when `headcount >= 2`. Secondary targets are positioned and rendered dynamically on the circular radar sweep.
@@ -23,7 +23,7 @@ All notable changes, bug fixes, and feature additions for the Wi-Fi RF Presence 
 
 ---
 
-## [v1.2.0] - 2026-10-25
+## [v1.2.0]
 
 ### Added
 - **Auto-Illumination Engine:** Added automatic 50 Hz background packet streaming in `main.py` using `subprocess.Popen` to ping the gateway, with automatic process cleanup on shutdown.
@@ -36,7 +36,7 @@ All notable changes, bug fixes, and feature additions for the Wi-Fi RF Presence 
 
 ---
 
-## [v1.1.0] - 2026-10-24
+## [v1.1.0]
 
 ### Added
 - **Dynamic Threshold Updates:** Added `update_profile()` hook in `proximity.py` to hot-swap calibration values without restarting the ASGI server.
@@ -44,7 +44,7 @@ All notable changes, bug fixes, and feature additions for the Wi-Fi RF Presence 
 
 ---
 
-## [v1.0.0] - 2026-10-23
+## [v1.0.0]
 
 ### Initial Release
 - Passive 802.11 monitor mode packet sniffer isolated to router BSSID.
