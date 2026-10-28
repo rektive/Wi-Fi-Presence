@@ -48,8 +48,8 @@ When a human moves within an indoor wireless environment, their body causes micr
 
 #### Linux:
 ```bash
-git clone [https://github.com/rektive/Wi-Fi-Presence.git](https://github.com/rektive/Wi-Fi-Presence.git)
-cd Wi-Fi-Presence
+git clone [https://github.com/rektive/Wi-Fi-Radar.git](https://github.com/rektive/Wi-Fi-Radar.git)
+cd Wi-Fi-Radar
 
 # Create and activate Python virtual environment
 python3 -m venv venv
