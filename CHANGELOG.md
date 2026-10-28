@@ -2,6 +2,22 @@
 
 All notable changes, bug fixes, and feature additions for the Wi-Fi RF Presence Radar project.
 
+## [v1.4.0]
+
+### Added
+- **Native Desktop Application Launcher (`desktop.py`):** Added a lightweight native window entry point powered by `pywebview` running over WebKitGTK, launching the dashboard directly as a standalone desktop utility while maintaining full web browser compatibility.
+- **Process Group Isolation for Engine Lifecycle:** Configured `subprocess.Popen` with process group assignment (`os.setsid`) in `desktop.py` along with synchronous port health polling, ensuring clean startup synchronization and graceful recursive teardown of the FastAPI/Uvicorn background engine on exit.
+- **Single-Line Deployment Scripts:** Added automated one-line setup runbooks for onboarding:
+  - `SETUP_ARCH.md`: Automates pacman networking dependencies (`iw`, `iproute2`), virtual environment creation, package installation, and non-root raw packet capability assignment (`setcap cap_net_raw,cap_net_admin=eip`).
+  - `SETUP_WINDOWS.md`: Automates PowerShell execution policy handling, venv setup, dependencies, and environment configuration.
+
+### Fixed
+- **WebKitGTK Wayland & DMA-Buf Rendering Crash:** Resolved protocol errors on Arch Linux / Hyprland by setting environment overrides (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_COMPOSITING_MODE=1`, and `GDK_BACKEND="x11,wayland"`) prior to window instantiation.
+- **WebKitGTK Missing `localStorage` Exception:** Fixed a fatal `ReferenceError: Can't find variable: localStorage` halting execution in `app.js` under WebKit private/sandboxed sessions by implementing an in-memory `safeStorage` polyfill fallback.
+- **Dynamic WebSocket Origin Resolution:** Replaced static host references with dynamic `window.location.host` and protocol detection (`ws://` vs `wss://`), enabling simultaneous WebSocket connectivity across native desktop windows, local browsers, and LAN client access.
+
+---
+
 ## [v1.3.0]
 
 ### Added
