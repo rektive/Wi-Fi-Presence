@@ -1,3 +1,21 @@
+// Safe storage polyfill for WebKitGTK / pywebview
+const safeStorage = (() => {
+    try {
+        if (typeof window !== 'undefined' && 'localStorage' in window && window.localStorage !== null) {
+            window.localStorage.setItem('__test', '1');
+            window.localStorage.removeItem('__test');
+            return window.localStorage;
+        }
+    } catch (e) {}
+    const memStore = {};
+    return {
+        getItem: (k) => (k in memStore ? memStore[k] : null),
+        setItem: (k, v) => { memStore[k] = String(v); },
+        removeItem: (k) => { delete memStore[k]; },
+        clear: () => { Object.keys(memStore).forEach(k => delete memStore[k]); }
+    };
+})();
+
 // ==========================================
 // Chart.js Setup & Configurations
 // ==========================================
@@ -88,7 +106,7 @@ const dopplerChart = dopplerCtx ? new Chart(dopplerCtx, {
 // ==========================================
 // Temporal Persistence & Stabilization Engine
 // ==========================================
-let targetRadius = parseFloat(localStorage.getItem("geofence_radius") || "2.0");
+let targetRadius = parseFloat(safeStorage.getItem("geofence_radius") || "2.0");
 const radiusInput = document.getElementById("geofence-radius");
 if (radiusInput) {
     radiusInput.value = targetRadius;
@@ -96,7 +114,7 @@ if (radiusInput) {
         const val = parseFloat(e.target.value);
         if (!isNaN(val) && val > 0) {
             targetRadius = val;
-            localStorage.setItem("geofence_radius", targetRadius);
+            safeStorage.setItem("geofence_radius", targetRadius);
         }
     });
 }
