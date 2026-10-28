@@ -62,8 +62,8 @@ pip install -r requirements.txt
 
 #### Windows (PowerShell as Administrator):
 ```powershell
-git clone [https://github.com/rektive/Wi-Fi-Presence.git](https://github.com/rektive/Wi-Fi-Presence.git)
-cd Wi-Fi-Presence
+git clone [https://github.com/rektive/Wi-Fi-Radar.git](https://github.com/rektive/Wi-Fi-Radar.git)
+cd Wi-Fi-Radar
 
 # Create and activate virtual environment
 python -m venv venv
